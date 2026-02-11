@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------- Root ---------- */
+:root {
+  --glass-light: rgba(255, 255, 255, 0.12);
+  --glass-dark: rgba(0, 0, 0, 0.35);
+}
+
+/* ---------- Base ---------- */
+body {
+  @apply min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black text-white font-sans;
+}
+
+/* ---------- Layout ---------- */
+.page-container {
+  @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6;
+}
+
+/* ---------- Glass Primitives ---------- */
+.glass {
+  @apply backdrop-blur-xl bg-white/10 border border-white/20 shadow-xl;
+}
+
+.glass-card {
+  @apply glass rounded-2xl p-6;
+}
+
+.glass-panel {
+  @apply glass rounded-xl p-4;
+}
+
+.glass-btn {
+  @apply rounded-xl px-4 py-2 font-semibold
+         bg-white/20 hover:bg-white/30
+         transition backdrop-blur-md;
+}
+
+/* ---------- Inputs ---------- */
+.glass-input {
+  @apply w-full p-3 rounded-xl bg-white/10
+         border border-white/20
+         text-white placeholder-white/60
+         focus:outline-none focus:ring-2 focus:ring-green-400
+         backdrop-blur-md;
+}
+
+/* ---------- Headings ---------- */
+h1, h2, h3 {
+  @apply font-bold;
+}
+
+/* ---------- Dark Mode ---------- */
+.dark body {
+  @apply bg-black;
+}
