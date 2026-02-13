@@ -1,5 +1,5 @@
 import { Handler } from "@netlify/functions";
-import pool from "../../src/offline/db";
+import pool from "./db";
 import jwt from "jsonwebtoken";
 
 const JWT_SECRET = process.env.JWT_SECRET!;

@@ -1,5 +1,5 @@
 import { Handler } from "@netlify/functions";
-import pool from "../../src/offline/db";
+import pool from "./db";
 import bcrypt from "bcryptjs";
 import { requireAuth } from "../../src/utils/requireAuth";
 
