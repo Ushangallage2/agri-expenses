@@ -8,15 +8,25 @@ export const handler: Handler = async (event) => {
   try {
     const token = event.headers.cookie?.split("token=")?.[1];
     if (!token) return { statusCode: 401, body: "Unauthorized" };
+
     jwt.verify(token, JWT_SECRET);
 
-    const { id } = JSON.parse(event.body || "{}");
-    if (!id) return { statusCode: 400, body: "Missing id" };
+    const res = await pool.query(`
+      SELECT
+        crop,
+        DATE(created_at) as date,
+        SUM(amount) as total
+      FROM expenses
+      GROUP BY crop, DATE(created_at)
+      ORDER BY date ASC;
+    `);
 
-    await pool.query("DELETE FROM expenses WHERE id=$1", [id]);
-    return { statusCode: 200, body: "Deleted" };
+    return {
+      statusCode: 200,
+      body: JSON.stringify(res.rows),
+    };
   } catch (err) {
     console.error(err);
-    return { statusCode: 500, body: "Server error" };
+    return { statusCode: 401, body: "Unauthorized" };
   }
 };

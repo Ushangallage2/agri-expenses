@@ -23,9 +23,10 @@ FROM expenses e
 ORDER BY e.created_at DESC;
     `);
 
+    console.log(res.rows);
     return {
       statusCode: 200,
-      body: JSON.stringify(res.rows),
+      body: JSON.stringify(res.rows),  
     };
   } catch (err) {
     console.error(err);

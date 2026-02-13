@@ -8,6 +8,7 @@ export default function AddExpense() {
   const [crop, setCrop] = useState("");
 
   const [users, setUsers] = useState<string[]>([]);
+  const [password, setPassword] = useState("");
   const [reasons, setReasons] = useState<string[]>([]);
   const [savedAmounts, setSavedAmounts] = useState<number[]>([]);
   const [crops, setCrops] = useState<string[]>([]); // optional if endpoint exists
@@ -64,7 +65,11 @@ export default function AddExpense() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ user }),
+          body: JSON.stringify({
+            username: user,
+            password
+          }),
+          
         });
       } else if (type === "reason") {
         res = await fetch("/.netlify/functions/addReason", {
@@ -167,9 +172,27 @@ export default function AddExpense() {
           </div>
         )}
 
-        {type === "user" && (
-          <input className="glass-input mb-3" placeholder="User name" value={user} onChange={e => setUser(e.target.value)} required />
-        )}
+{type === "user" && (
+  <>
+    <input
+      className="glass-input mb-3"
+      placeholder="Username"
+      value={user}
+      onChange={e => setUser(e.target.value)}
+      required
+    />
+
+    <input
+      className="glass-input mb-3"
+      type="password"
+      placeholder="Password"
+      value={password}
+      onChange={e => setPassword(e.target.value)}
+      required
+    />
+  </>
+)}
+
 
         {type === "reason" && (
           <input className="glass-input mb-3" placeholder="Reason" value={reason} onChange={e => setReason(e.target.value)} required />
