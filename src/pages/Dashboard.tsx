@@ -377,7 +377,7 @@ function ExpenseTable({
 
           <tbody>
             {expenses.map((e) => {
-              const cropName = crops.find(c => c.id === e.crop)?.name || "-";
+         //     const cropName = crops.find(c => c.id === e.crop)?.name || "-";
 
               return (
                 <tr key={e.id} className="border-t border-white/10 hover:bg-white/5 transition">
@@ -693,7 +693,7 @@ async function logout() {
 
 
 // Total value of all crops (expenses + incomes)
-const total = expenses.reduce((sum, e) => sum + e.amount, 0);
+//const total = expenses.reduce((sum, e) => sum + e.amount, 0);
 
 // Total per crop
 const cropTotals: Record<string, number> = {};
@@ -709,15 +709,6 @@ expenses.forEach(e => {
   if (!userTotals[e.expender]) userTotals[e.expender] = 0;
   userTotals[e.expender] += e.amount;
 });
-
-const gradients = [
-  "from-red-400 to-red-600",
-  "from-green-400 to-green-600",
-  "from-blue-400 to-blue-600",
-  "from-purple-400 to-purple-600",
-  "from-yellow-400 to-yellow-500",
-];
-
 
 
 
