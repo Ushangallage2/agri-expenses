@@ -350,7 +350,6 @@ type ExpenseTableProps = {
 
 function ExpenseTable({
   expenses,
-  crops,
   onDelete,
 }: ExpenseTableProps) {
   const [deleteId, setDeleteId] = useState<string | null>(null);
