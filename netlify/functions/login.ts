@@ -23,6 +23,9 @@ export const handler: Handler = async (event) => {
     "Content-Type": "application/json",
   };
 
+  console.log("DATABASE_URL:", process.env.DATABASE_URL);
+
+
   // ✅ CORS preflight
   if (event.httpMethod === "OPTIONS") {
     return response(204, "", {
