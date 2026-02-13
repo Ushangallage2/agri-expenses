@@ -85,7 +85,8 @@ export const handler: Handler = async (event) => {
       }
     );
   } catch (err) {
-    console.error(err);
+    console.log("LOGIN ERROR:", err);
+    console.log("STACK:", err?.stack);
     return response(500, "Server error", baseHeaders);
   }
 };
