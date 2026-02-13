@@ -17,7 +17,7 @@ const pool = new Pool({
       }
     : {
         rejectUnauthorized: true,
-        ca: fs.readFileSync(path.join(process.cwd(), "ca.pem")).toString(), // 🔹 use CA in production
+        ca: process.env.PG_CA_CERT, // 🔹 use CA in production
       },
 });
 
