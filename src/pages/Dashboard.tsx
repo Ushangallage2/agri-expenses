@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef,useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import ExpenseChart from "../components/ExpenseChart";
 import ThemeToggle from "../components/ThemeToggle";
+
 
 
 /* ======================= TYPES ======================= */
@@ -33,6 +34,10 @@ type Option = {
   label: string;
 };
 
+
+
+
+
 export function DropdownSelect({
   options,
   value,
@@ -45,74 +50,97 @@ export function DropdownSelect({
   placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const wrapperRef = React.useRef<HTMLDivElement>(null);
-  const inputRef = React.useRef<HTMLInputElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
 
+  /* =======================
+     Close when clicking outside
+  ======================== */
   useEffect(() => {
-    const close = (e: MouseEvent) => {
+    const handleClickOutside = (e: MouseEvent) => {
       if (!wrapperRef.current?.contains(e.target as Node)) {
         setOpen(false);
       }
     };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
   }, []);
 
-  const updatePos = () => {
+  /* =======================
+     Update dropdown position
+  ======================== */
+  const updatePosition = () => {
     if (!inputRef.current) return;
-    const r = inputRef.current.getBoundingClientRect();
+
+    const rect = inputRef.current.getBoundingClientRect();
     setPos({
-      top: r.bottom + window.scrollY + 4,
-      left: r.left + window.scrollX,
-      width: r.width,
+      top: rect.bottom + window.scrollY + 4,
+      left: rect.left + window.scrollX,
+      width: rect.width,
     });
   };
+
+  /* Recalculate when opened */
+  useEffect(() => {
+    if (open) {
+      updatePosition();
+    }
+  }, [open]);
 
   const selectedLabel =
     options.find(o => o.value === value)?.label || "";
 
   return (
     <div ref={wrapperRef} className="relative w-full">
+      {/* ================= INPUT ================= */}
       <input
         ref={inputRef}
         readOnly
-        className="glass-input pr-8 cursor-pointer"
         value={selectedLabel}
         placeholder={placeholder}
-        onMouseDown={(e) => {
-          e.preventDefault();
-          setOpen(v => !v);
-          updatePos();
+        className="glass-input pr-10 cursor-pointer min-h-[44px]"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(prev => !prev);
         }}
       />
 
+      {/* ================= ARROW ================= */}
       <button
         type="button"
-        className="absolute right-2 top-1/2 -translate-y-1/2 text-xs"
-        onMouseDown={(e) => {
-          e.preventDefault();
-          setOpen(v => !v);
-          updatePos();
+        className="absolute right-2 top-1/2 -translate-y-1/2 text-xs min-h-[44px] px-2"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(prev => !prev);
         }}
       >
         ▼
       </button>
 
+      {/* ================= DROPDOWN MENU ================= */}
       {open &&
         createPortal(
           <ul
-            style={pos}
-            className="fixed z-50 max-h-48 overflow-y-auto
-                       bg-black/70 backdrop-blur-md
-                       border border-white/20 rounded-md"
+            style={{
+              position: "absolute",
+              top: pos.top,
+              left: pos.left,
+              width: pos.width,
+              zIndex: 9999,
+            }}
+            className="max-h-48 overflow-y-auto
+                       bg-black/80 backdrop-blur-md
+                       border border-white/20
+                       rounded-md shadow-lg"
           >
             {options.map(opt => (
               <li
                 key={opt.value}
-                className="p-2 cursor-pointer hover:bg-white/20"
-                onMouseDown={(e) => {
-                  e.preventDefault();
+                className="p-3 cursor-pointer hover:bg-white/20"
+                onClick={(e) => {
+                  e.stopPropagation();
                   onChange(opt.value);
                   setOpen(false);
                 }}
@@ -128,7 +156,10 @@ export function DropdownSelect({
 }
 
 
+
 /* ======================= COMBO BOX ======================= */
+
+
 function ComboBox({
   options,
   value,
@@ -141,63 +172,148 @@ function ComboBox({
   placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const wrapperRef = React.useRef<HTMLDivElement>(null);
-  const inputRef = React.useRef<HTMLInputElement>(null);
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  const [pos, setPos] = useState({
+    top: 0,
+    left: 0,
+    width: 0,
+  });
 
-  useEffect(() => {
-    const close = (e: MouseEvent) => {
-      if (!wrapperRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, []);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const updatePos = () => {
+  /* =========================
+     UPDATE DROPDOWN POSITION
+  ========================== */
+  const updatePosition = () => {
     if (!inputRef.current) return;
-    const r = inputRef.current.getBoundingClientRect();
-    setPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX, width: r.width });
+
+    const rect = inputRef.current.getBoundingClientRect();
+
+    setPos({
+      top: rect.bottom + 6,
+      left: rect.left,
+      width: rect.width,
+    });
   };
 
-  const filtered = options.filter(o =>
+  /* =========================
+     CLOSE ON OUTSIDE CLICK
+  ========================== */
+  useEffect(() => {
+    const handlePointerDown = (e: PointerEvent) => {
+      if (!wrapperRef.current?.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () =>
+      document.removeEventListener("pointerdown", handlePointerDown);
+  }, []);
+
+  /* =========================
+     REPOSITION ON SCROLL/RESIZE
+  ========================== */
+  useEffect(() => {
+    if (!open) return;
+
+    const handleUpdate = () => updatePosition();
+
+    window.addEventListener("scroll", handleUpdate);
+    window.addEventListener("resize", handleUpdate);
+
+    return () => {
+      window.removeEventListener("scroll", handleUpdate);
+      window.removeEventListener("resize", handleUpdate);
+    };
+  }, [open]);
+
+  /* =========================
+     FILTER OPTIONS
+  ========================== */
+  const filtered = options.filter((o) =>
     o.toLowerCase().includes(value.toLowerCase())
   );
 
   return (
     <div ref={wrapperRef} className="relative w-full">
+      {/* ================= INPUT ================= */}
       <input
         ref={inputRef}
-        className="glass-input pr-8"
+        className="glass-input pr-8 min-h-[44px]"
         value={value}
         placeholder={placeholder}
-        onFocus={() => { setOpen(true); updatePos(); }}
-        onChange={(e) => { onChange(e.target.value); setOpen(true); updatePos(); }}
+        onFocus={() => {
+          setOpen(true);
+          updatePosition();
+        }}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setOpen(true);
+          updatePosition();
+        }}
       />
+
+      {/* ================= ARROW ================= */}
       <button
         type="button"
-        className="absolute right-2 top-1/2 -translate-y-1/2 text-xs"
-        onMouseDown={(e) => { e.preventDefault(); setOpen(v => !v); updatePos(); }}
+        className="absolute right-2 top-1/2 -translate-y-1/2 text-xs px-2"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((prev) => !prev);
+          updatePosition();
+        }}
       >
         ▼
       </button>
 
-      {open && createPortal(
-        <ul style={pos} className="fixed z-50 max-h-48 overflow-y-auto bg-black/70 border border-white/20 rounded-md">
-          {filtered.map(opt => (
-            <li
-              key={opt}
-              className="p-2 cursor-pointer hover:bg-white/20"
-              onMouseDown={(e) => { e.preventDefault(); onChange(opt); setOpen(false); }}
-            >
-              {opt}
-            </li>
-          ))}
-        </ul>,
-        document.body
-      )}
+      {/* ================= DROPDOWN ================= */}
+      {open &&
+        createPortal(
+          <ul
+            style={{
+              position: "fixed",
+              top: pos.top,
+              left: pos.left,
+              width: pos.width, // ✅ EXACT SAME WIDTH AS INPUT
+              zIndex: 9999,
+            }}
+            className="
+              max-h-56 overflow-y-auto
+              bg-black/85 backdrop-blur-md
+              border border-white/20
+              rounded-lg shadow-2xl
+            "
+          >
+            {filtered.length === 0 && (
+              <li className="p-3 text-white/60">
+                No results
+              </li>
+            )}
+
+            {filtered.map((opt) => (
+              <li
+                key={opt}
+                className="p-3 cursor-pointer hover:bg-white/20"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChange(opt);
+                  setOpen(false);
+                }}
+              >
+                {opt}
+              </li>
+            ))}
+          </ul>,
+          document.body
+        )}
     </div>
   );
 }
+
+
+
+
 
 
 
@@ -328,7 +444,13 @@ function AddRecordForm({
   {loading ? "Saving..." : "Save"}
 </button>
       </div>
+
     </form>
+
+
+
+
+
   );
 }
 
