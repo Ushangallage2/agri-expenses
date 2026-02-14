@@ -124,7 +124,7 @@ export function DropdownSelect({
         createPortal(
           <ul
             style={{
-              position: "absolute",
+              position: "fixed",
               top: pos.top,
               left: pos.left,
               width: pos.width,
@@ -160,6 +160,9 @@ export function DropdownSelect({
 /* ======================= COMBO BOX ======================= */
 
 
+
+
+
 function ComboBox({
   options,
   value,
@@ -172,17 +175,14 @@ function ComboBox({
   placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState({
-    top: 0,
-    left: 0,
-    width: 0,
-  });
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLUListElement>(null);
 
   /* =========================
-     UPDATE DROPDOWN POSITION
+     UPDATE POSITION
   ========================== */
   const updatePosition = () => {
     if (!inputRef.current) return;
@@ -190,18 +190,25 @@ function ComboBox({
     const rect = inputRef.current.getBoundingClientRect();
 
     setPos({
-      top: rect.bottom + 6,
-      left: rect.left,
+      top: rect.bottom + window.scrollY + 6,
+      left: rect.left + window.scrollX,
       width: rect.width,
     });
   };
 
   /* =========================
-     CLOSE ON OUTSIDE CLICK
+     OUTSIDE CLICK (POINTER SAFE)
   ========================== */
   useEffect(() => {
     const handlePointerDown = (e: PointerEvent) => {
-      if (!wrapperRef.current?.contains(e.target as Node)) {
+      const target = e.target as Node;
+
+      const insideWrapper =
+        wrapperRef.current?.contains(target);
+      const insideDropdown =
+        dropdownRef.current?.contains(target);
+
+      if (!insideWrapper && !insideDropdown) {
         setOpen(false);
       }
     };
@@ -212,24 +219,7 @@ function ComboBox({
   }, []);
 
   /* =========================
-     REPOSITION ON SCROLL/RESIZE
-  ========================== */
-  useEffect(() => {
-    if (!open) return;
-
-    const handleUpdate = () => updatePosition();
-
-    window.addEventListener("scroll", handleUpdate);
-    window.addEventListener("resize", handleUpdate);
-
-    return () => {
-      window.removeEventListener("scroll", handleUpdate);
-      window.removeEventListener("resize", handleUpdate);
-    };
-  }, [open]);
-
-  /* =========================
-     FILTER OPTIONS
+     FILTER
   ========================== */
   const filtered = options.filter((o) =>
     o.toLowerCase().includes(value.toLowerCase())
@@ -237,7 +227,7 @@ function ComboBox({
 
   return (
     <div ref={wrapperRef} className="relative w-full">
-      {/* ================= INPUT ================= */}
+      {/* INPUT */}
       <input
         ref={inputRef}
         className="glass-input pr-8 min-h-[44px]"
@@ -254,12 +244,12 @@ function ComboBox({
         }}
       />
 
-      {/* ================= ARROW ================= */}
+      {/* ARROW */}
       <button
         type="button"
         className="absolute right-2 top-1/2 -translate-y-1/2 text-xs px-2"
-        onClick={(e) => {
-          e.stopPropagation();
+        onPointerDown={(e) => {
+          e.preventDefault();
           setOpen((prev) => !prev);
           updatePosition();
         }}
@@ -267,15 +257,16 @@ function ComboBox({
         ▼
       </button>
 
-      {/* ================= DROPDOWN ================= */}
+      {/* DROPDOWN */}
       {open &&
         createPortal(
           <ul
+            ref={dropdownRef}
             style={{
-              position: "fixed",
+              position: "absolute",
               top: pos.top,
               left: pos.left,
-              width: pos.width, // ✅ EXACT SAME WIDTH AS INPUT
+              width: pos.width,
               zIndex: 9999,
             }}
             className="
@@ -295,8 +286,8 @@ function ComboBox({
               <li
                 key={opt}
                 className="p-3 cursor-pointer hover:bg-white/20"
-                onClick={(e) => {
-                  e.stopPropagation();
+                onPointerDown={(e) => {
+                  e.preventDefault(); // prevents blur before select
                   onChange(opt);
                   setOpen(false);
                 }}
@@ -310,6 +301,10 @@ function ComboBox({
     </div>
   );
 }
+
+
+
+
 
 
 
