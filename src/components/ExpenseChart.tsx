@@ -52,6 +52,17 @@ export default function ExpenseChart({ trends = [] }: { trends?: Trend[] }) {
 
   const dates = Array.from(dateSet).sort();
 
+  // ---------- CALCULATE CUMULATIVE DATA ----------
+  const cumulativeMap = new Map<string, number[]>();
+  for (const [crop, dateMap] of cropMap.entries()) {
+    let runningTotal = 0;
+    const cumulativeData = dates.map((date) => {
+      runningTotal += dateMap.get(date) ?? 0;
+      return runningTotal;
+    });
+    cumulativeMap.set(crop, cumulativeData);
+  }
+
   // ---------- FORMAT LABELS ----------
   const formattedDates = dates.map((d) => {
     const dt = new Date(d);
@@ -59,28 +70,24 @@ export default function ExpenseChart({ trends = [] }: { trends?: Trend[] }) {
   });
 
   // ---------- CREATE DATASETS WITH COLORS ----------
-  const datasets = Array.from(cropMap.entries()).map(([crop, dateMap], index) => ({
+  const datasets = Array.from(cumulativeMap.entries()).map(([crop, data], index) => ({
     label: crop,
-    data: dates.map((date) => dateMap.get(date) ?? 0),
+    data,
     tension: 0.3,
     borderWidth: 2,
-    borderColor: COLORS[index % COLORS.length], // assign color cyclically
-    backgroundColor: COLORS[index % COLORS.length] + "33", // semi-transparent fill for hover
-    fill: false, // no area under line
-    pointRadius: 3, // small points
+    borderColor: COLORS[index % COLORS.length],
+    backgroundColor: COLORS[index % COLORS.length] + "33", // semi-transparent
+    fill: false,
+    pointRadius: 3,
   }));
 
   // ---------- CALCULATE MAX ABS FOR Y SCALE ----------
   const allValues = datasets.flatMap((d) => d.data);
   const maxAbs = Math.max(...allValues.map((v) => Math.abs(v)), 1);
-  const padding = Math.ceil(maxAbs * 0.1); // add 10% extra space
+  const padding = Math.ceil(maxAbs * 0.1);
 
-  const data = {
-    labels: formattedDates,
-    datasets,
-  };
+  const data = { labels: formattedDates, datasets };
 
-  // ---------- TYPED OPTIONS ----------
   const options: ChartOptions<"line"> = {
     responsive: true,
     maintainAspectRatio: false,
@@ -105,12 +112,12 @@ export default function ExpenseChart({ trends = [] }: { trends?: Trend[] }) {
     scales: {
       y: {
         type: "linear",
-        suggestedMin: -maxAbs - padding,
+        suggestedMin: 0,
         suggestedMax: maxAbs + padding,
         ticks: {
           callback: (value) => {
             const num = Number(value);
-            return Math.abs(num) >= 1000 ? num / 1000 + "K" : num;
+            return num >= 1000 ? num / 1000 + "K" : num;
           },
         },
       },
