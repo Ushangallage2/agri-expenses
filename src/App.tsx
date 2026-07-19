@@ -3,6 +3,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import AddExpense from "./pages/AddExpense";
 import CropNotes from "./pages/CropNotes";
+import ActivityLog from "./pages/ActivityLog";
 
 export default function App() {
   return (
@@ -12,6 +13,7 @@ export default function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/add-expense" element={<AddExpense />} />
         <Route path="/crops/:cropName/notes" element={<CropNotes />} />
+        <Route path="/activity" element={<ActivityLog />} />
         <Route path="*" element={<Navigate to="/login" />} />
       </Routes>
     </BrowserRouter>

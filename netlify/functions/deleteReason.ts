@@ -7,19 +7,22 @@ const baseHandler: Handler = async (event) => {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
 
-  const { id } = JSON.parse(event.body || "{}");
-  if (!id) return { statusCode: 400, body: "id required" };
+  const { reason } = JSON.parse(event.body || "{}");
+  if (!reason || !String(reason).trim()) {
+    return { statusCode: 400, body: "Reason required" };
+  }
 
   try {
-    await pool.query("DELETE FROM crop_notes WHERE id = $1", [id]);
-    try {
-      await pool.query("DELETE FROM crop_images WHERE note_id = $1", [id]);
-    } catch {
-      /* table may not exist yet */
+    const value = String(reason).trim();
+    const res = await pool.query("DELETE FROM reasons WHERE reason = $1", [value]);
+
+    if (!res.rowCount) {
+      return { statusCode: 404, body: "Reason not found" };
     }
+
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true }),
+      body: JSON.stringify({ success: true, reason: value }),
     };
   } catch (err) {
     console.error(err);

@@ -10,19 +10,32 @@ export const handler: Handler = async (event) => {
     if (!token) return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
     jwt.verify(token, JWT_SECRET);
 
-    const { user, reason, amount, crop } = JSON.parse(event.body || "{}");
+    const { user, reason, amount, crop, date } = JSON.parse(event.body || "{}");
 
     if (!user || !reason || typeof amount !== "number" || !crop)
       return { statusCode: 400, body: JSON.stringify({ error: "Missing or invalid fields" }) };
 
-    // check user exists
     const userRes = await pool.query("SELECT id FROM users WHERE username=$1", [user]);
-    if (userRes.rowCount === 0) return { statusCode: 400, body: JSON.stringify({ error: "User not found" }) };
+    if (userRes.rowCount === 0)
+      return { statusCode: 400, body: JSON.stringify({ error: "User not found" }) };
 
-    await pool.query(
-      `INSERT INTO expenses (expender, reason, amount, crop, created_at) VALUES ($1,$2,$3,$4,NOW())`,
-      [user, reason, amount, crop]
-    );
+    const dateOk =
+      typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date);
+    const createdAt = dateOk ? `${date} 12:00:00` : null;
+
+    if (createdAt) {
+      await pool.query(
+        `INSERT INTO expenses (expender, reason, amount, crop, created_at)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [user, reason, amount, crop, createdAt]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO expenses (expender, reason, amount, crop, created_at)
+         VALUES ($1, $2, $3, $4, NOW())`,
+        [user, reason, amount, crop]
+      );
+    }
 
     return { statusCode: 200, body: JSON.stringify({ message: "Added" }) };
   } catch (err) {

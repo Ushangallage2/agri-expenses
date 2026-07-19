@@ -1,3 +1,6 @@
+import { useEffect } from "react";
+import { createPortal } from "react-dom";
+
 type ConfirmModalProps = {
   open: boolean;
   title: string;
@@ -19,37 +22,63 @@ export default function ConfirmModal({
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
-  if (!open) return null;
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open, onCancel]);
 
-  return (
+  if (!open || typeof document === "undefined") return null;
+
+  return createPortal(
     <div
-      className="fixed inset-0 flex items-center justify-center bg-black/55 backdrop-blur-sm z-[100] animate-fadeIn px-4"
+      className="confirm-overlay"
       role="dialog"
       aria-modal="true"
       aria-labelledby="confirm-modal-title"
       onClick={onCancel}
     >
       <div
-        className="glass-card p-6 w-full max-w-[360px] text-center space-y-4 shadow-[0_0_40px_rgba(212,175,55,0.12)]"
+        className="confirm-panel glass-card animate-rise"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2
-          id="confirm-modal-title"
-          className="font-display text-2xl text-gold"
-        >
-          {title}
-        </h2>
-        {message && (
-          <p className="text-sm text-gold-muted leading-relaxed">{message}</p>
-        )}
-        <div className="flex justify-center gap-3 pt-2">
-          <button type="button" className="glass-btn min-w-[100px]" onClick={onCancel}>
+        <div className="confirm-panel__body">
+          <p className="eyebrow text-center">Please confirm</p>
+          <h2
+            id="confirm-modal-title"
+            className="font-display text-2xl sm:text-3xl text-gold glow-text text-center"
+          >
+            {title}
+          </h2>
+          {message && (
+            <p className="text-sm sm:text-base text-gold-muted leading-relaxed text-center mt-2">
+              {message}
+            </p>
+          )}
+        </div>
+
+        <div className="confirm-panel__actions">
+          <button
+            type="button"
+            className="glass-btn confirm-btn"
+            onClick={onCancel}
+          >
             {cancelLabel}
           </button>
           <button
             type="button"
-            className={`glass-btn min-w-[100px] ${
-              danger ? "text-red-300 border-red-400/40 hover:bg-red-500/15" : "gold-btn"
+            className={`glass-btn confirm-btn ${
+              danger
+                ? "text-red-200 border-red-400/50 hover:bg-red-500/20"
+                : "gold-btn"
             }`}
             onClick={onConfirm}
           >
@@ -57,6 +86,7 @@ export default function ConfirmModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

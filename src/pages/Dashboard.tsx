@@ -4,6 +4,8 @@ import { createPortal } from "react-dom";
 import ExpenseChart from "../components/ExpenseChart";
 import SoundToggle from "../components/SoundToggle";
 import ConfirmModal from "../components/ConfirmModal";
+import EditRecordModal from "../components/EditRecordModal";
+import type { EditableExpense } from "../components/EditRecordModal";
 import { play, unlockAudio } from "../utils/sounds";
 
 
@@ -76,7 +78,51 @@ function CounterCard({
       ? size * 0.2
       : Math.max(size * (0.2 - (formatted.length - 3.5) * 0.018), size * 0.11);
 
-  const Wrapper: any = onClick ? "button" : "div";
+  const body = (
+    <>
+      <div
+        className={`relative rounded-full counter-ring ${onClick ? "cursor-pointer" : ""}`}
+        style={{ width: size, height: size, minWidth: size, minHeight: size }}
+      >
+        {imgSrc && (
+          <img
+            src={imgSrc}
+            alt=""
+            className="w-full h-full rounded-full object-cover opacity-90 pointer-events-none"
+          />
+        )}
+        {!imgSrc && (
+          <div className="w-full h-full rounded-full bg-gradient-to-br from-[#2a2418] to-[#0c0b09]" />
+        )}
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-2 pointer-events-none">
+          <span
+            className="font-extrabold select-none text-gold glow-text"
+            style={{ fontSize: `${fontSize}px`, lineHeight: 1 }}
+          >
+            {formatted}
+          </span>
+          {isHero && (
+            <span className="text-[9px] uppercase tracking-widest text-gold-muted mt-1">
+              profit
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-2 text-center w-full max-w-[160px]">
+        <div
+          className={`font-medium text-sm truncate ${onClick ? "text-gold" : "text-white"}`}
+        >
+          {label}
+          {onClick ? " →" : ""}
+        </div>
+        <div className="mt-1 flex flex-wrap justify-center gap-1">
+          <span className="stat-pill text-emerald-300/90">+{income.toLocaleString()}</span>
+          <span className="stat-pill text-red-300/90">−{expense.toLocaleString()}</span>
+        </div>
+      </div>
+    </>
+  );
 
   return (
     <div className="flex flex-col items-center relative group animate-rise">
@@ -96,49 +142,17 @@ function CounterCard({
           ✕
         </button>
       )}
-      <Wrapper
-        type={onClick ? "button" : undefined}
-        onClick={onClick}
-        className={`relative rounded-full counter-ring ${onClick ? "cursor-pointer" : ""}`}
-        style={{ width: size, height: size, minWidth: size, minHeight: size }}
-      >
-        {imgSrc && (
-          <img
-            src={imgSrc}
-            alt=""
-            className="w-full h-full rounded-full object-cover opacity-90"
-          />
-        )}
-        {!imgSrc && (
-          <div className="w-full h-full rounded-full bg-gradient-to-br from-[#2a2418] to-[#0c0b09]" />
-        )}
-        <div className="absolute inset-0 flex flex-col items-center justify-center px-2">
-          <span
-            className="font-extrabold select-none text-gold glow-text"
-            style={{ fontSize: `${fontSize}px`, lineHeight: 1 }}
-          >
-            {formatted}
-          </span>
-          {isHero && (
-            <span className="text-[9px] uppercase tracking-widest text-gold-muted mt-1">
-              profit
-            </span>
-          )}
-        </div>
-      </Wrapper>
-
-      <div className="mt-2 text-center w-full max-w-[160px]">
-        <div
-          className={`font-medium text-sm truncate ${onClick ? "text-gold hover:underline" : "text-white"}`}
+      {onClick ? (
+        <button
+          type="button"
+          onClick={onClick}
+          className="flex flex-col items-center bg-transparent border-0 p-0 text-inherit cursor-pointer"
         >
-          {label}
-          {onClick ? " →" : ""}
-        </div>
-        <div className="mt-1 flex flex-wrap justify-center gap-1">
-          <span className="stat-pill text-emerald-300/90">+{income.toLocaleString()}</span>
-          <span className="stat-pill text-red-300/90">−{expense.toLocaleString()}</span>
-        </div>
-      </div>
+          {body}
+        </button>
+      ) : (
+        <div className="flex flex-col items-center">{body}</div>
+      )}
     </div>
   );
 }
@@ -161,49 +175,51 @@ export function DropdownSelect({
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  const menuRef = useRef<HTMLUListElement>(null);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0, maxHeight: 192 });
 
-  /* =======================
-     Close when clicking outside
-  ======================== */
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (!wrapperRef.current?.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-
-    document.addEventListener("click", handleClickOutside);
-    return () => document.removeEventListener("click", handleClickOutside);
-  }, []);
-
-  /* =======================
-     Update dropdown position
-  ======================== */
   const updatePosition = () => {
     if (!inputRef.current) return;
-
     const rect = inputRef.current.getBoundingClientRect();
+    const gap = 4;
+    const spaceBelow = window.innerHeight - rect.bottom - gap;
+    const spaceAbove = rect.top - gap;
+    const preferBelow = spaceBelow >= 120 || spaceBelow >= spaceAbove;
+    const maxHeight = Math.min(192, preferBelow ? spaceBelow : spaceAbove);
     setPos({
-      top: rect.bottom + window.scrollY + 4,
-      left: rect.left + window.scrollX,
+      top: preferBelow ? rect.bottom + gap : Math.max(8, rect.top - gap - maxHeight),
+      left: rect.left,
       width: rect.width,
+      maxHeight: Math.max(96, maxHeight),
     });
   };
 
-  /* Recalculate when opened */
   useEffect(() => {
-    if (open) {
-      updatePosition();
-    }
+    const handlePointerDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (wrapperRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    updatePosition();
+    const onReposition = () => updatePosition();
+    window.addEventListener("scroll", onReposition, true);
+    window.addEventListener("resize", onReposition);
+    return () => {
+      window.removeEventListener("scroll", onReposition, true);
+      window.removeEventListener("resize", onReposition);
+    };
   }, [open]);
 
-  const selectedLabel =
-    options.find(o => o.value === value)?.label || "";
+  const selectedLabel = options.find((o) => o.value === value)?.label || "";
 
   return (
     <div ref={wrapperRef} className="relative w-full">
-      {/* ================= INPUT ================= */}
       <input
         ref={inputRef}
         readOnly
@@ -212,42 +228,37 @@ export function DropdownSelect({
         className="glass-input pr-10 cursor-pointer min-h-[44px]"
         onClick={(e) => {
           e.stopPropagation();
-          setOpen(prev => !prev);
+          setOpen((prev) => !prev);
         }}
       />
-
-      {/* ================= ARROW ================= */}
       <button
         type="button"
         className="absolute right-2 top-1/2 -translate-y-1/2 text-xs min-h-[44px] px-2"
         onClick={(e) => {
           e.stopPropagation();
-          setOpen(prev => !prev);
+          setOpen((prev) => !prev);
         }}
       >
         ▼
       </button>
-
-      {/* ================= DROPDOWN MENU ================= */}
       {open &&
         createPortal(
           <ul
+            ref={menuRef}
             style={{
               position: "fixed",
               top: pos.top,
               left: pos.left,
               width: pos.width,
+              maxHeight: pos.maxHeight,
               zIndex: 9999,
             }}
-            className="max-h-48 overflow-y-auto
-                       bg-black/80 backdrop-blur-md
-                       border border-white/20
-                       rounded-md shadow-lg"
+            className="overflow-y-auto bg-black/90 backdrop-blur-md border border-[var(--glass-border)] rounded-xl shadow-2xl custom-scroll"
           >
-            {options.map(opt => (
+            {options.map((opt) => (
               <li
                 key={opt.value}
-                className="p-3 cursor-pointer hover:bg-white/20"
+                className="p-3 cursor-pointer hover:bg-[rgba(212,175,55,0.15)]"
                 onClick={(e) => {
                   e.stopPropagation();
                   onChange(opt.value);
@@ -264,14 +275,6 @@ export function DropdownSelect({
   );
 }
 
-
-
-/* ======================= COMBO BOX ======================= */
-
-
-
-
-
 function ComboBox({
   options,
   value,
@@ -284,59 +287,57 @@ function ComboBox({
   placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
-
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0, maxHeight: 224 });
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLUListElement>(null);
 
-  /* =========================
-     UPDATE POSITION
-  ========================== */
   const updatePosition = () => {
     if (!inputRef.current) return;
-
     const rect = inputRef.current.getBoundingClientRect();
-
+    const gap = 6;
+    const spaceBelow = window.innerHeight - rect.bottom - gap;
+    const spaceAbove = rect.top - gap;
+    const preferBelow = spaceBelow >= 120 || spaceBelow >= spaceAbove;
+    const maxHeight = Math.min(224, preferBelow ? spaceBelow : spaceAbove);
     setPos({
-      top: rect.bottom + window.scrollY + 6,
-      left: rect.left + window.scrollX,
+      top: preferBelow ? rect.bottom + gap : Math.max(8, rect.top - gap - maxHeight),
+      left: rect.left,
       width: rect.width,
+      maxHeight: Math.max(96, maxHeight),
     });
   };
 
-  /* =========================
-     OUTSIDE CLICK (POINTER SAFE)
-  ========================== */
   useEffect(() => {
     const handlePointerDown = (e: PointerEvent) => {
       const target = e.target as Node;
-
-      const insideWrapper =
-        wrapperRef.current?.contains(target);
-      const insideDropdown =
-        dropdownRef.current?.contains(target);
-
-      if (!insideWrapper && !insideDropdown) {
-        setOpen(false);
+      if (wrapperRef.current?.contains(target) || dropdownRef.current?.contains(target)) {
+        return;
       }
+      setOpen(false);
     };
-
     document.addEventListener("pointerdown", handlePointerDown);
-    return () =>
-      document.removeEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, []);
 
-  /* =========================
-     FILTER
-  ========================== */
+  useEffect(() => {
+    if (!open) return;
+    updatePosition();
+    const onReposition = () => updatePosition();
+    window.addEventListener("scroll", onReposition, true);
+    window.addEventListener("resize", onReposition);
+    return () => {
+      window.removeEventListener("scroll", onReposition, true);
+      window.removeEventListener("resize", onReposition);
+    };
+  }, [open]);
+
   const filtered = options.filter((o) =>
     o.toLowerCase().includes(value.toLowerCase())
   );
 
   return (
     <div ref={wrapperRef} className="relative w-full">
-      {/* INPUT */}
       <input
         ref={inputRef}
         className="glass-input pr-8 min-h-[44px]"
@@ -344,59 +345,48 @@ function ComboBox({
         placeholder={placeholder}
         onFocus={() => {
           setOpen(true);
-          updatePosition();
+          requestAnimationFrame(updatePosition);
         }}
         onChange={(e) => {
           onChange(e.target.value);
           setOpen(true);
-          updatePosition();
+          requestAnimationFrame(updatePosition);
         }}
       />
-
-      {/* ARROW */}
       <button
         type="button"
         className="absolute right-2 top-1/2 -translate-y-1/2 text-xs px-2"
         onPointerDown={(e) => {
           e.preventDefault();
           setOpen((prev) => !prev);
-          updatePosition();
+          requestAnimationFrame(updatePosition);
         }}
       >
         ▼
       </button>
-
-      {/* DROPDOWN */}
       {open &&
         createPortal(
           <ul
             ref={dropdownRef}
             style={{
-              position: "absolute",
+              position: "fixed",
               top: pos.top,
               left: pos.left,
               width: pos.width,
+              maxHeight: pos.maxHeight,
               zIndex: 9999,
             }}
-            className="
-              max-h-56 overflow-y-auto
-              bg-black/85 backdrop-blur-md
-              border border-white/20
-              rounded-lg shadow-2xl
-            "
+            className="overflow-y-auto bg-black/90 backdrop-blur-md border border-[var(--glass-border)] rounded-xl shadow-2xl custom-scroll"
           >
             {filtered.length === 0 && (
-              <li className="p-3 text-white/60">
-                No results
-              </li>
+              <li className="p-3 text-white/60">No results</li>
             )}
-
             {filtered.map((opt) => (
               <li
                 key={opt}
-                className="p-3 cursor-pointer hover:bg-white/20"
+                className="p-3 cursor-pointer hover:bg-[rgba(212,175,55,0.15)]"
                 onPointerDown={(e) => {
-                  e.preventDefault(); // prevents blur before select
+                  e.preventDefault();
                   onChange(opt);
                   setOpen(false);
                 }}
@@ -424,6 +414,14 @@ function ComboBox({
 
 
 
+function todayLocalISO() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 /* ======================= ADD RECORD FORM ======================= */
 function AddRecordForm({
   users,
@@ -443,14 +441,12 @@ function AddRecordForm({
   const [reason, setReason] = useState("");
   const [amount, setAmount] = useState("");
   const [crop, setCrop] = useState("");
+  const [date, setDate] = useState(todayLocalISO);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  //const [deleteId, setDeleteId] = useState<string | null>(null);
-
-
-  const isValid = user && reason && amount && crop;
+  const isValid = user && reason && amount && crop && date;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -463,6 +459,7 @@ function AddRecordForm({
       user,
       reason,
       crop,
+      date,
       amount:
         type === "expense"
           ? -Math.abs(Number(amount))
@@ -479,6 +476,7 @@ function AddRecordForm({
       play("save");
       setMessage("Record saved successfully ✔");
       setAmount("");
+      setDate(todayLocalISO());
 
       setTimeout(() => setMessage(null), 3000);
     } catch (err: any) {
@@ -490,81 +488,67 @@ function AddRecordForm({
       setLoading(false);
     }
   }
-  
-  
-
-
-
-
-
-
-
-
-
 
   return (
     <form onSubmit={submit} className="glass-card mb-6 p-4 gold-sheen">
-      
       {message && (
-  <div className="mb-3 text-emerald-300 text-sm font-medium">
-    {message}
-  </div>
-)}
+        <div className="mb-3 text-emerald-300 text-sm font-medium">{message}</div>
+      )}
+      {error && (
+        <div className="mb-3 text-red-400 text-sm font-medium">{error}</div>
+      )}
 
-{error && (
-  <div className="mb-3 text-red-400 text-sm font-medium">
-    {error}
-  </div>
-)}
-
-
-      
-      <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-      <DropdownSelect
-  value={type}
-  onChange={(v) => setType(v as "expense" | "income")}
-  placeholder="Type"
-  options={[
-    { value: "expense", label: "➖ Expense" },
-    { value: "income", label: "➕ Income" },
-  ]}
-/>
-
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
+        <DropdownSelect
+          value={type}
+          onChange={(v) => setType(v as "expense" | "income")}
+          placeholder="Type"
+          options={[
+            { value: "expense", label: "➖ Expense" },
+            { value: "income", label: "➕ Income" },
+          ]}
+        />
 
         <ComboBox options={users} value={user} onChange={setUser} placeholder="User" />
         <ComboBox options={reasons} value={reason} onChange={setReason} placeholder="Reason" />
-        <ComboBox options={amounts.map(a => a.toString())} value={amount} onChange={setAmount} placeholder="Amount" />
+        <ComboBox
+          options={amounts.map((a) => a.toString())}
+          value={amount}
+          onChange={setAmount}
+          placeholder="Amount"
+        />
 
         <DropdownSelect
-  value={crop}
-  onChange={setCrop}
-  placeholder="Select crop"
-  options={crops.map(c => ({
-    value: c.name,   // 👈 send name
-    label: c.name,
-  }))}
-/>
+          value={crop}
+          onChange={setCrop}
+          placeholder="Select crop"
+          options={crops.map((c) => ({
+            value: c.name,
+            label: c.name,
+          }))}
+        />
 
-<button
-  className={`glass-btn ${!isValid || loading ? "opacity-50" : ""}`}
-  disabled={!isValid || loading}
->
-  {loading ? "Saving..." : "Save"}
-</button>
+        <label className="block w-full">
+          <span className="sr-only">Date</span>
+          <input
+            type="date"
+            className="glass-input date-input min-h-[44px]"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            required
+          />
+        </label>
+
+        <button
+          className={"glass-btn gold-btn " + (!isValid || loading ? "opacity-50" : "")}
+          disabled={!isValid || loading}
+        >
+          {loading ? "Saving..." : "Save"}
+        </button>
       </div>
-
     </form>
-
-
-
-
-
   );
 }
-
-
-
-
 
 
 /* ======================= EXPENSE TABLE ======================= */
@@ -575,45 +559,54 @@ type ExpenseTableProps = {
   crops: Crop[];
   amounts?: number[];
   onDelete: (id: string) => void;
+  onEdit: (record: Expense) => void;
   onUpdateCrop?: (id: string, crop_id: string) => void;
 };
 
 function ExpenseTable({
   expenses,
   onDelete,
+  onEdit,
 }: ExpenseTableProps) {
+  const navigate = useNavigate();
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   return (
     <div className="glass-card p-0 overflow-hidden">
-
-
-
-
-
       <div className="max-h-[50vh] overflow-y-auto custom-scroll">
         <table className="w-full table-fixed text-left text-sm md:text-base">
           <thead className="sticky top-0 bg-white/10 backdrop-blur-md">
             <tr>
-              <th className="p-3 w-[18%]">User</th>
-              <th className="p-3 w-[32%]">Reason</th>
-              <th className="p-3 w-[15%] hidden sm:table-cell">Crop</th>
-              <th className="p-3 w-[20%] text-right pr-4">Amount</th>
-              <th className="p-3 w-[10%] text-right pr-2 hidden md:table-cell">Date</th>
-              <th className="w-[5%] text-right pr-3" />
+              <th className="p-3 w-[16%]">User</th>
+              <th className="p-3 w-[28%]">Reason</th>
+              <th className="p-3 w-[14%] hidden sm:table-cell">Crop</th>
+              <th className="p-3 w-[16%] text-right pr-4">Amount</th>
+              <th className="p-3 w-[12%] text-right pr-2 hidden md:table-cell">Date</th>
+              <th className="w-[14%] text-right pr-3">Actions</th>
             </tr>
           </thead>
 
           <tbody>
             {expenses.map((e) => {
-         //     const cropName = crops.find(c => c.id === e.crop)?.name || "-";
-
               return (
                 <tr key={e.id} className="border-t border-white/10 hover:bg-white/5 transition">
-                  
                   <td className="p-3 truncate">{e.expender}</td>
                   <td className="p-3 truncate">{e.reason}</td>
-                  <td className="p-3 truncate hidden sm:table-cell">{e.crop}</td>
+                  <td className="p-3 truncate hidden sm:table-cell">
+                    {e.crop ? (
+                      <button
+                        type="button"
+                        className="text-gold hover:underline bg-transparent border-0 p-0 cursor-pointer"
+                        onClick={() =>
+                          navigate(`/crops/${encodeURIComponent(e.crop!)}/notes`)
+                        }
+                      >
+                        {e.crop}
+                      </button>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td className={`p-3 text-right pr-4 font-medium ${e.amount < 0 ? "text-red-400" : "text-green-400"}`}>
                     {e.amount.toLocaleString()}
                   </td>
@@ -621,34 +614,47 @@ function ExpenseTable({
                     {new Date(e.created_at).toLocaleDateString()}
                   </td>
                   <td className="p-3 text-right pr-3">
-                    <button
-                      onClick={() => setDeleteId(e.id)}
-  
-                      className="text-red-400 hover:text-red-300 transition text-lg"
-                    >
-                      ✖
-                    </button>
+                    <div className="inline-flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onEdit(e)}
+                        className="text-gold hover:text-[var(--gold-bright)] transition text-sm px-1"
+                        title="Edit record"
+                        aria-label="Edit record"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteId(e.id)}
+                        className="text-red-400 hover:text-red-300 transition text-lg"
+                        title="Delete record"
+                        aria-label="Delete record"
+                      >
+                        ✖
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
-
-        {deleteId && (
-          <ConfirmModal
-            open
-            title="Delete this record?"
-            message="This action cannot be undone."
-            confirmLabel="Delete"
-            onCancel={() => setDeleteId(null)}
-            onConfirm={() => {
-              onDelete(deleteId);
-              setDeleteId(null);
-            }}
-          />
-        )}
       </div>
+
+      <ConfirmModal
+        open={!!deleteId}
+        title="Delete this record?"
+        message="This action cannot be undone."
+        confirmLabel="Delete"
+        onCancel={() => setDeleteId(null)}
+        onConfirm={() => {
+          if (deleteId) {
+            onDelete(deleteId);
+            setDeleteId(null);
+          }
+        }}
+      />
 
       <style>
 {`
@@ -718,6 +724,7 @@ export default function Dashboard() {
   const [trends, setTrends] = useState<Trend[]>([]);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [userToDelete, setUserToDelete] = useState<string | null>(null);
+  const [editingRecord, setEditingRecord] = useState<EditableExpense | null>(null);
 
 
   useEffect(() => {
@@ -828,6 +835,23 @@ async function deleteRecord(id: string) {
   }
 }
 
+async function updateRecord(payload: {
+  id: string | number;
+  user: string;
+  reason: string;
+  crop: string;
+  amount: number;
+  date: string;
+}) {
+  await safeFetch("/.netlify/functions/updateExpense", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  await fetchExpenses();
+  await loadTrends();
+}
+
 async function deleteUser(username: string) {
   void unlockAudio();
   try {
@@ -872,6 +896,9 @@ const ledger = splitTotals(expenses);
         </div>
 
         <div className="flex gap-2 items-center flex-wrap">
+          <button className="glass-btn" onClick={() => navigate("/activity")}>
+            Backlog
+          </button>
           <button className="glass-btn" onClick={() => navigate("/add-expense?type=user")}>
             + User
           </button>
@@ -944,6 +971,9 @@ const ledger = splitTotals(expenses);
               label={u}
               {...t}
               imgSrc="/normalCounter.png"
+              onClick={() =>
+                navigate(`/activity?user=${encodeURIComponent(u)}`)
+              }
               onDelete={() => setUserToDelete(u)}
             />
           );
@@ -963,7 +993,19 @@ const ledger = splitTotals(expenses);
         crops={crops}
         amounts={amounts}
         onDelete={deleteRecord}
+        onEdit={setEditingRecord}
         onUpdateCrop={updateCrop}
+      />
+
+      <EditRecordModal
+        open={!!editingRecord}
+        record={editingRecord}
+        users={users}
+        reasons={reasons}
+        crops={crops}
+        amounts={amounts}
+        onClose={() => setEditingRecord(null)}
+        onSave={updateRecord}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">

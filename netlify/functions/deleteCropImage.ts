@@ -1,6 +1,6 @@
 import type { Handler } from "@netlify/functions";
-import pool from "./db";
 import { requireAuth } from "../../src/utils/requireAuth";
+import { deleteCropImageById } from "./utils/cropImagesDb";
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -11,12 +11,8 @@ const baseHandler: Handler = async (event) => {
   if (!id) return { statusCode: 400, body: "id required" };
 
   try {
-    await pool.query("DELETE FROM crop_notes WHERE id = $1", [id]);
-    try {
-      await pool.query("DELETE FROM crop_images WHERE note_id = $1", [id]);
-    } catch {
-      /* table may not exist yet */
-    }
+    const ok = await deleteCropImageById(Number(id));
+    if (!ok) return { statusCode: 404, body: "Image not found" };
     return {
       statusCode: 200,
       body: JSON.stringify({ success: true }),

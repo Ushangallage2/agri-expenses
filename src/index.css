@@ -116,6 +116,28 @@
     color: color-mix(in srgb, var(--gold-muted) 60%, transparent);
   }
 
+  .date-input {
+    color-scheme: dark;
+  }
+
+  .date-input::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    filter: invert(0.85) sepia(0.6) saturate(3) hue-rotate(5deg);
+    opacity: 0.9;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
   .stat-pill {
     @apply text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full;
     border: 1px solid var(--glass-border);
@@ -191,4 +213,78 @@
 .custom-scroll::-webkit-scrollbar-thumb {
   border-radius: 10px;
   background: rgba(212, 175, 55, 0.35);
+}
+
+/* Confirm modal — viewport-centered, never clipped by table overflow */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+    max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: fadeIn 0.2s ease-out both;
+}
+
+.confirm-panel {
+  width: min(100%, 400px);
+  max-height: min(85dvh, 520px);
+  display: flex;
+  flex-direction: column;
+  padding: 0 !important;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(212, 175, 55, 0.22),
+    0 24px 60px rgba(0, 0, 0, 0.55),
+    0 0 48px rgba(212, 175, 55, 0.1);
+}
+
+.confirm-panel__body {
+  padding: 1.5rem 1.35rem 1rem;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+
+.confirm-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: stretch;
+  padding: 1rem 1.35rem 1.35rem;
+  border-top: 1px solid rgba(212, 175, 55, 0.2);
+  background: linear-gradient(
+    180deg,
+    rgba(212, 175, 55, 0.06),
+    rgba(0, 0, 0, 0.25)
+  );
+  flex-shrink: 0;
+}
+
+.confirm-btn {
+  flex: 1 1 120px;
+  min-height: 44px;
+}
+
+.edit-record-panel {
+  width: min(100%, 440px);
+  max-height: min(90dvh, 720px);
+}
+
+.edit-record-panel .confirm-panel__body {
+  max-height: none;
+}
+
+@media (max-width: 420px) {
+  .confirm-panel__actions {
+    flex-direction: column-reverse;
+  }
+
+  .confirm-btn {
+    width: 100%;
+  }
 }

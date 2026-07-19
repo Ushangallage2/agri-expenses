@@ -5,6 +5,12 @@ import { play, unlockAudio } from "../utils/sounds";
 import SoundToggle from "../components/SoundToggle";
 import ConfirmModal from "../components/ConfirmModal";
 
+type DeleteTarget =
+  | { kind: "user"; value: string }
+  | { kind: "crop"; value: string }
+  | { kind: "reason"; value: string }
+  | null;
+
 export default function AddExpense() {
   const [user, setUser] = useState("");
   const [reason, setReason] = useState("");
@@ -20,8 +26,8 @@ export default function AddExpense() {
     message: string;
   }>(null);
   const [loading, setLoading] = useState(false);
-  const [deleting, setDeleting] = useState<string | null>(null);
-  const [userToDelete, setUserToDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [toDelete, setToDelete] = useState<DeleteTarget>(null);
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -32,47 +38,72 @@ export default function AddExpense() {
     if (r.ok) setUsers(await r.json());
   }
 
+  async function loadReasons() {
+    const r = await fetch(`${API}/getReasons`, { credentials: "include" });
+    if (r.ok) setReasons(await r.json());
+  }
+
+  async function loadCrops() {
+    const r = await fetch(`${API}/getCrops`, { credentials: "include" });
+    if (r.ok) {
+      const c = await r.json();
+      setCrops(c.map((x: { name: string }) => x.name));
+    }
+  }
+
   useEffect(() => {
     if (type === "user") loadUsers().catch(console.error);
-    if (type === "reason") {
-      fetch(`${API}/getReasons`, { credentials: "include" })
-        .then((r) => r.json())
-        .then(setReasons)
-        .catch(console.error);
-    }
+    if (type === "reason") loadReasons().catch(console.error);
     if (type === "amount") {
       fetch(`${API}/getAmounts`, { credentials: "include" })
         .then((r) => r.json())
         .then(setSavedAmounts)
         .catch(console.error);
     }
-    if (type === "crop") {
-      fetch(`${API}/getCrops`, { credentials: "include" })
-        .then((r) => r.json())
-        .then((c) => setCrops(c.map((x: { name: string }) => x.name)))
-        .catch(console.error);
-    }
+    if (type === "crop") loadCrops().catch(console.error);
   }, [type]);
 
-  async function deleteUser(username: string) {
-    setDeleting(username);
+  async function confirmDelete() {
+    if (!toDelete) return;
+    setDeleting(true);
     void unlockAudio();
     try {
-      const res = await fetch(`${API}/deleteUser`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ username }),
-      });
+      let res: Response;
+      if (toDelete.kind === "user") {
+        res = await fetch(`${API}/deleteUser`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ username: toDelete.value }),
+        });
+      } else if (toDelete.kind === "crop") {
+        res = await fetch(`${API}/deleteCrop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ name: toDelete.value }),
+        });
+      } else {
+        res = await fetch(`${API}/deleteReason`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ reason: toDelete.value }),
+        });
+      }
+
       if (!res.ok) throw new Error(await res.text());
       play("delete");
-      setUserToDelete(null);
-      await loadUsers();
+      setToDelete(null);
+
+      if (toDelete.kind === "user") await loadUsers();
+      else if (toDelete.kind === "crop") await loadCrops();
+      else await loadReasons();
     } catch (err: any) {
       play("error");
       setStatus({ type: "error", message: err.message || "Delete failed" });
     } finally {
-      setDeleting(null);
+      setDeleting(false);
     }
   }
 
@@ -146,6 +177,25 @@ export default function AddExpense() {
         : type === "amount"
           ? savedAmounts
           : crops;
+
+  const canDeleteItem = type === "user" || type === "crop" || type === "reason";
+
+  const deleteTitle =
+    toDelete?.kind === "user"
+      ? "Delete user?"
+      : toDelete?.kind === "crop"
+        ? "Delete crop?"
+        : toDelete?.kind === "reason"
+          ? "Delete reason?"
+          : "Delete?";
+
+  const deleteMessage = toDelete
+    ? toDelete.kind === "crop"
+      ? `Remove “${toDelete.value}” from crops? Notes for this crop will be removed. Past ledger records keep the name.`
+      : toDelete.kind === "reason"
+        ? `Remove “${toDelete.value}”? Past ledger records keep the reason text.`
+        : `Remove “${toDelete.value}”? Past records will keep the name.`
+    : undefined;
 
   return (
     <div className="page-container animate-rise">
@@ -245,19 +295,51 @@ export default function AddExpense() {
                 key={i}
                 className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg hover:bg-white/5"
               >
-                <span className="opacity-90 truncate">• {String(v)}</span>
-                {type === "user" && (
+                {type === "crop" ? (
                   <button
                     type="button"
-                    className="text-red-400 hover:text-red-300 shrink-0 px-1"
-                    disabled={deleting === String(v)}
-                    onClick={() => setUserToDelete(String(v))}
-                    aria-label={`Delete ${v}`}
-                    title="Delete user"
+                    className="opacity-90 truncate text-left text-gold hover:underline bg-transparent border-0 p-0 cursor-pointer flex-1 min-w-0"
+                    onClick={() =>
+                      navigate(`/crops/${encodeURIComponent(String(v))}/notes`)
+                    }
+                    title="Open notes & images"
                   >
-                    {deleting === String(v) ? "…" : "✕"}
+                    • {String(v)} →
                   </button>
+                ) : (
+                  <span className="opacity-90 truncate">• {String(v)}</span>
                 )}
+                <div className="flex items-center gap-1 shrink-0">
+                  {type === "crop" && (
+                    <button
+                      type="button"
+                      className="text-gold/90 hover:text-[var(--gold-bright)] text-xs px-2 py-1 rounded-lg border border-[var(--glass-border)]"
+                      onClick={() =>
+                        navigate(`/crops/${encodeURIComponent(String(v))}/notes`)
+                      }
+                      title="Notes & images"
+                    >
+                      Notes
+                    </button>
+                  )}
+                  {canDeleteItem && (
+                    <button
+                      type="button"
+                      className="text-red-400 hover:text-red-300 px-1"
+                      disabled={deleting}
+                      onClick={() =>
+                        setToDelete({
+                          kind: type as "user" | "crop" | "reason",
+                          value: String(v),
+                        })
+                      }
+                      aria-label={`Delete ${v}`}
+                      title={`Delete ${type}`}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
             {list.length === 0 && (
@@ -268,17 +350,13 @@ export default function AddExpense() {
       </form>
 
       <ConfirmModal
-        open={!!userToDelete}
-        title="Delete user?"
-        message={
-          userToDelete
-            ? `Remove “${userToDelete}”? Past records will keep the name.`
-            : undefined
-        }
+        open={!!toDelete}
+        title={deleteTitle}
+        message={deleteMessage}
         confirmLabel={deleting ? "Deleting…" : "Delete"}
-        onCancel={() => !deleting && setUserToDelete(null)}
+        onCancel={() => !deleting && setToDelete(null)}
         onConfirm={() => {
-          if (userToDelete && !deleting) void deleteUser(userToDelete);
+          if (toDelete && !deleting) void confirmDelete();
         }}
       />
     </div>
