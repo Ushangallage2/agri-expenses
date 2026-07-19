@@ -90,11 +90,12 @@ async function dispatchSummary(opts: {
 
   return {
     skipped: false as const,
+    recipientCount: config.emails.length,
     sent: config.emails.length,
     periodKey: key,
     periodLabel: summary.periodLabel,
-    periodProfit: summary.period.profit,
-    allTimeProfit: summary.allTime.profit,
+    periodProfit: Number(summary.period.profit) || 0,
+    allTimeProfit: Number(summary.allTime.profit) || 0,
   };
 }
 
@@ -148,10 +149,22 @@ export const handler: Handler = async (event) => {
       usePreviousPeriod: usePrevious,
     });
 
+    const payload = {
+      ok: true,
+      skipped: Boolean(result.skipped),
+      reason: "reason" in result ? result.reason : undefined,
+      sent: "sent" in result ? result.sent : 0,
+      recipientCount: "recipientCount" in result ? result.recipientCount : 0,
+      periodKey: "periodKey" in result ? result.periodKey : null,
+      periodLabel: "periodLabel" in result ? result.periodLabel : null,
+      periodProfit: "periodProfit" in result ? result.periodProfit : null,
+      allTimeProfit: "allTimeProfit" in result ? result.allTimeProfit : null,
+    };
+
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ok: true, ...result }),
+      body: JSON.stringify(payload),
     };
   } catch (err: any) {
     console.error("sendLedgerSummary:", err?.message || err);

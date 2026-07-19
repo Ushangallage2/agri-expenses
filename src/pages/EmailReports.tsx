@@ -102,18 +102,32 @@ export default function EmailReports() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ previousPeriod }),
       });
-      const data = await res.json().catch(() => ({}));
+      const rawText = await res.text();
+      let data: any = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+        if (typeof data === "string") data = JSON.parse(data);
+      } catch {
+        data = {};
+      }
       if (!res.ok) {
         throw new Error(data?.error || "Send failed — check Mailtrap env vars");
       }
       if (data.skipped) {
-        setMessage(`Skipped: ${data.reason}`);
+        setMessage(`Skipped: ${data.reason || "not sent"}`);
         play("error");
       } else {
         play("success");
-        setMessage(
-          `Sent to ${data.sent} address(es) · ${data.periodLabel} · profit ${Number(data.periodProfit).toLocaleString()}`
-        );
+        const count = data.sent ?? data.recipientCount;
+        const label = data.periodLabel;
+        const profit = Number(data.periodProfit);
+        if (count != null && label && Number.isFinite(profit)) {
+          setMessage(
+            `Sent to ${count} address(es) · ${label} · profit ${profit.toLocaleString()}`
+          );
+        } else {
+          setMessage("Summary email sent successfully.");
+        }
         setLastSentAt(new Date().toISOString());
       }
     } catch (e: any) {
