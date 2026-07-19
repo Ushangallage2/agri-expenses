@@ -20,7 +20,7 @@ export const handler: Handler = async (event) => {
   e.crop,
   e.created_at
 FROM expenses e
-ORDER BY e.created_at DESC;
+ORDER BY e.created_at DESC, e.id DESC;
     `);
 
     console.log(res.rows);

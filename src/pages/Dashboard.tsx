@@ -7,6 +7,7 @@ import ConfirmModal from "../components/ConfirmModal";
 import EditRecordModal from "../components/EditRecordModal";
 import type { EditableExpense } from "../components/EditRecordModal";
 import { play, unlockAudio } from "../utils/sounds";
+import { sortExpensesByDate } from "../utils/sortExpenses";
 
 
 
@@ -560,6 +561,7 @@ type ExpenseTableProps = {
   amounts?: number[];
   onDelete: (id: string) => void;
   onEdit: (record: Expense) => void;
+  onReorder: (id: string, beforeId: string | null, afterId: string | null) => Promise<void>;
   onUpdateCrop?: (id: string, crop_id: string) => void;
 };
 
@@ -567,20 +569,61 @@ function ExpenseTable({
   expenses,
   onDelete,
   onEdit,
+  onReorder,
 }: ExpenseTableProps) {
   const navigate = useNavigate();
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+  const [reordering, setReordering] = useState(false);
+
+  async function handleDrop(targetId: string) {
+    if (!draggingId || draggingId === targetId || reordering) return;
+
+    const movedId = draggingId;
+    const from = expenses.findIndex((e) => String(e.id) === String(movedId));
+    const to = expenses.findIndex((e) => String(e.id) === String(targetId));
+    if (from < 0 || to < 0) return;
+
+    const next = [...expenses];
+    const [moved] = next.splice(from, 1);
+    const insertAt = from < to ? to - 1 : to;
+    next.splice(insertAt, 0, moved);
+
+    const idx = next.findIndex((e) => String(e.id) === String(movedId));
+    const beforeId = idx > 0 ? String(next[idx - 1].id) : null;
+    const afterId = idx < next.length - 1 ? String(next[idx + 1].id) : null;
+
+    setDraggingId(null);
+    setOverId(null);
+    setReordering(true);
+    try {
+      await onReorder(movedId, beforeId, afterId);
+      play("success");
+    } catch {
+      play("error");
+    } finally {
+      setReordering(false);
+    }
+  }
 
   return (
     <div className="glass-card p-0 overflow-hidden">
+      <div className="px-4 pt-3 pb-1">
+        <p className="text-xs text-gold-muted">
+          Records sort by date (newest first). Drag the handle to move a row —
+          its date updates so charts stay in sync.
+        </p>
+      </div>
       <div className="max-h-[50vh] overflow-y-auto custom-scroll">
         <table className="w-full table-fixed text-left text-sm md:text-base">
           <thead className="sticky top-0 bg-white/10 backdrop-blur-md">
             <tr>
-              <th className="p-3 w-[16%]">User</th>
-              <th className="p-3 w-[28%]">Reason</th>
+              <th className="p-3 w-[6%] text-center" title="Drag to reorder">⋮⋮</th>
+              <th className="p-3 w-[14%]">User</th>
+              <th className="p-3 w-[26%]">Reason</th>
               <th className="p-3 w-[14%] hidden sm:table-cell">Crop</th>
-              <th className="p-3 w-[16%] text-right pr-4">Amount</th>
+              <th className="p-3 w-[14%] text-right pr-4">Amount</th>
               <th className="p-3 w-[12%] text-right pr-2 hidden md:table-cell">Date</th>
               <th className="w-[14%] text-right pr-3">Actions</th>
             </tr>
@@ -588,8 +631,46 @@ function ExpenseTable({
 
           <tbody>
             {expenses.map((e) => {
+              const id = String(e.id);
+              const isDragging = draggingId === id;
+              const isOver = overId === id && draggingId !== id;
               return (
-                <tr key={e.id} className="border-t border-white/10 hover:bg-white/5 transition">
+                <tr
+                  key={e.id}
+                  onDragOver={(ev) => {
+                    ev.preventDefault();
+                    if (draggingId && draggingId !== id) setOverId(id);
+                  }}
+                  onDragLeave={() => {
+                    if (overId === id) setOverId(null);
+                  }}
+                  onDrop={(ev) => {
+                    ev.preventDefault();
+                    void handleDrop(id);
+                  }}
+                  className={`border-t border-white/10 transition ${
+                    isDragging ? "opacity-40" : "hover:bg-white/5"
+                  } ${isOver ? "bg-[rgba(212,175,55,0.12)] ring-1 ring-inset ring-[var(--gold)]" : ""}`}
+                >
+                  <td className="p-2 text-center">
+                    <span
+                      draggable={!reordering}
+                      onDragStart={(ev) => {
+                        setDraggingId(id);
+                        ev.dataTransfer.effectAllowed = "move";
+                        ev.dataTransfer.setData("text/plain", id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggingId(null);
+                        setOverId(null);
+                      }}
+                      className="inline-flex cursor-grab active:cursor-grabbing select-none text-gold-muted hover:text-gold px-1 py-2 tracking-tighter"
+                      title="Drag to change position / date"
+                      aria-label="Drag to reorder"
+                    >
+                      ⠿
+                    </span>
+                  </td>
                   <td className="p-3 truncate">{e.expender}</td>
                   <td className="p-3 truncate">{e.reason}</td>
                   <td className="p-3 truncate hidden sm:table-cell">
@@ -772,10 +853,12 @@ async function fetchAll() {
   setReasons(r);
   setCrops(c);
   setExpenses(
-    e.map((item: any) => ({
-      ...item,
-      amount: Number(item.amount),
-    }))
+    sortExpensesByDate(
+      e.map((item: any) => ({
+        ...item,
+        amount: Number(item.amount),
+      }))
+    )
   );
   setAmounts(a);
 }
@@ -785,10 +868,12 @@ async function fetchExpenses() {
 
   if (e) {
     setExpenses(
-      e.map((item: any) => ({
-        ...item,
-        amount: Number(item.amount),
-      }))
+      sortExpensesByDate(
+        e.map((item: any) => ({
+          ...item,
+          amount: Number(item.amount),
+        }))
+      )
     );
   }
 }
@@ -847,6 +932,20 @@ async function updateRecord(payload: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+  });
+  await fetchExpenses();
+  await loadTrends();
+}
+
+async function reorderRecord(
+  id: string,
+  beforeId: string | null,
+  afterId: string | null
+) {
+  await safeFetch("/.netlify/functions/reorderExpense", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, beforeId, afterId }),
   });
   await fetchExpenses();
   await loadTrends();
@@ -997,6 +1096,7 @@ const ledger = splitTotals(expenses);
         amounts={amounts}
         onDelete={deleteRecord}
         onEdit={setEditingRecord}
+        onReorder={reorderRecord}
         onUpdateCrop={updateCrop}
       />
 

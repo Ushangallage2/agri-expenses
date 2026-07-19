@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { API } from "../utils/api";
 import SoundToggle from "../components/SoundToggle";
+import { sortExpensesByDate } from "../utils/sortExpenses";
 
 type Entry = {
   id: string | number;
@@ -39,7 +40,9 @@ export default function ActivityLog() {
         if (!eRes.ok) throw new Error(await eRes.text());
         const rows = await eRes.json();
         setEntries(
-          rows.map((r: Entry) => ({ ...r, amount: Number(r.amount) }))
+          sortExpensesByDate(
+            rows.map((r: Entry) => ({ ...r, amount: Number(r.amount) }))
+          )
         );
         if (uRes.ok) setUsers(await uRes.json());
       } catch (err: any) {
