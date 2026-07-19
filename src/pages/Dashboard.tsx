@@ -641,6 +641,7 @@ function ExpenseTable({
     src: string;
   } | null>(null);
   const [receiptLoadingId, setReceiptLoadingId] = useState<string | null>(null);
+  const [receiptZoom, setReceiptZoom] = useState(1);
 
   async function viewReceipt(id: string) {
     void unlockAudio();
@@ -653,12 +654,30 @@ function ExpenseTable({
       );
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
+      setReceiptZoom(1);
       setReceiptView({ id, src: data.receipt_data });
     } catch {
       play("error");
     } finally {
       setReceiptLoadingId(null);
     }
+  }
+
+  function downloadReceipt() {
+    if (!receiptView) return;
+    void unlockAudio();
+    play("click");
+    const a = document.createElement("a");
+    a.href = receiptView.src;
+    a.download = `receipt-${receiptView.id}.jpg`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  function closeReceipt() {
+    setReceiptView(null);
+    setReceiptZoom(1);
   }
 
   async function handleDrop(targetId: string) {
@@ -704,12 +723,13 @@ function ExpenseTable({
           <thead className="sticky top-0 bg-white/10 backdrop-blur-md">
             <tr>
               <th className="p-3 w-[5%] text-center" title="Drag to reorder">⋮⋮</th>
-              <th className="p-3 w-[13%]">User</th>
-              <th className="p-3 w-[22%]">Reason</th>
-              <th className="p-3 w-[12%] hidden sm:table-cell">Crop</th>
-              <th className="p-3 w-[12%] text-right pr-4">Amount</th>
-              <th className="p-3 w-[12%] text-right pr-2 hidden md:table-cell">Date</th>
-              <th className="w-[24%] text-right pr-3">Actions</th>
+              <th className="p-3 w-[12%]">User</th>
+              <th className="p-3 w-[20%]">Reason</th>
+              <th className="p-3 w-[11%] hidden sm:table-cell">Crop</th>
+              <th className="p-3 w-[11%] text-right pr-4">Amount</th>
+              <th className="p-3 w-[11%] text-right pr-2 hidden md:table-cell">Date</th>
+              <th className="p-3 w-[14%] text-center">Receipt</th>
+              <th className="w-[16%] text-right pr-3">Actions</th>
             </tr>
           </thead>
 
@@ -778,21 +798,25 @@ function ExpenseTable({
                   <td className="p-3 text-right pr-2 opacity-70 hidden md:table-cell">
                     {new Date(e.created_at).toLocaleDateString()}
                   </td>
+                  <td className="p-3 text-center">
+                    {e.has_receipt ? (
+                      <button
+                        type="button"
+                        onClick={() => void viewReceipt(id)}
+                        disabled={receiptLoadingId === id}
+                        className="receipt-view-btn"
+                        title="View receipt"
+                        aria-label="View receipt"
+                      >
+                        {receiptLoadingId === id ? "…" : "◉"}
+                        <span className="receipt-view-btn__label">view</span>
+                      </button>
+                    ) : (
+                      <span className="text-gold-muted/40 text-xs">—</span>
+                    )}
+                  </td>
                   <td className="p-3 text-right pr-3">
                     <div className="inline-flex items-center gap-1.5 justify-end">
-                      {e.has_receipt ? (
-                        <button
-                          type="button"
-                          onClick={() => void viewReceipt(id)}
-                          disabled={receiptLoadingId === id}
-                          className="receipt-view-btn"
-                          title="View receipt"
-                          aria-label="View receipt"
-                        >
-                          {receiptLoadingId === id ? "…" : "◉"}
-                          <span className="receipt-view-btn__label">view</span>
-                        </button>
-                      ) : null}
                       <button
                         type="button"
                         onClick={() => onEdit(e)}
@@ -840,23 +864,73 @@ function ExpenseTable({
             className="confirm-overlay"
             role="dialog"
             aria-modal="true"
-            onClick={() => setReceiptView(null)}
+            onClick={closeReceipt}
           >
             <div
-              className="confirm-panel glass-card animate-rise max-w-3xl w-[min(92vw,720px)]"
+              className="confirm-panel glass-card animate-rise receipt-viewer-panel"
               onClick={(ev) => ev.stopPropagation()}
             >
-              <p className="eyebrow text-center mb-2">Receipt</p>
-              <img
-                src={receiptView.src}
-                alt="Expense receipt"
-                className="w-full max-h-[70vh] object-contain rounded-xl border border-[var(--glass-border)] bg-black/40"
-              />
-              <div className="confirm-panel__actions mt-4">
+              <div className="confirm-panel__body !pb-3">
+                <p className="eyebrow text-center mb-2">Receipt</p>
+                <div className="receipt-zoom-toolbar">
+                  <button
+                    type="button"
+                    className="glass-btn text-sm"
+                    onClick={() => setReceiptZoom((z) => Math.max(1, Number((z - 0.25).toFixed(2))))}
+                    disabled={receiptZoom <= 1}
+                    title="Zoom out"
+                  >
+                    −
+                  </button>
+                  <span className="text-xs text-gold-muted tabular-nums min-w-[3.5rem] text-center">
+                    {Math.round(receiptZoom * 100)}%
+                  </span>
+                  <button
+                    type="button"
+                    className="glass-btn text-sm"
+                    onClick={() => setReceiptZoom((z) => Math.min(4, Number((z + 0.25).toFixed(2))))}
+                    disabled={receiptZoom >= 4}
+                    title="Zoom in"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    className="glass-btn text-sm"
+                    onClick={() => setReceiptZoom(1)}
+                    disabled={receiptZoom === 1}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    className="glass-btn text-sm text-sky-300"
+                    onClick={downloadReceipt}
+                  >
+                    Download
+                  </button>
+                </div>
+                <div className="receipt-zoom-stage">
+                  <img
+                    src={receiptView.src}
+                    alt="Expense receipt"
+                    className="receipt-zoom-img"
+                    style={{ transform: `scale(${receiptZoom})` }}
+                    onDoubleClick={() =>
+                      setReceiptZoom((z) => (z >= 2 ? 1 : Number((z + 0.5).toFixed(2))))
+                    }
+                    draggable={false}
+                  />
+                </div>
+                <p className="text-[11px] text-center text-gold-muted mt-2">
+                  Double-click image to zoom · scroll the frame when zoomed
+                </p>
+              </div>
+              <div className="confirm-panel__actions">
                 <button
                   type="button"
                   className="glass-btn gold-btn confirm-btn w-full"
-                  onClick={() => setReceiptView(null)}
+                  onClick={closeReceipt}
                 >
                   Close
                 </button>

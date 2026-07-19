@@ -318,6 +318,41 @@
   font-size: 0.65rem;
 }
 
+.receipt-viewer-panel {
+  width: min(100%, 780px) !important;
+  max-height: min(92dvh, 860px) !important;
+}
+
+.receipt-zoom-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.receipt-zoom-stage {
+  overflow: auto;
+  max-height: min(58dvh, 520px);
+  border-radius: 0.9rem;
+  border: 1px solid var(--glass-border);
+  background: rgba(0, 0, 0, 0.45);
+  padding: 0.75rem;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.receipt-zoom-img {
+  max-width: 100%;
+  height: auto;
+  transform-origin: center top;
+  transition: transform 0.2s ease;
+  cursor: zoom-in;
+  user-select: none;
+}
+
 @keyframes receiptPulse {
   0%,
   100% {
