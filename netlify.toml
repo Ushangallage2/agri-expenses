@@ -13,6 +13,10 @@
   node_bundler = "esbuild"
   external_node_modules = ["mysql2", "bcryptjs", "jsonwebtoken"]
 
+# Daily check; weekly sends on Monday, monthly on the 1st (UTC)
+[functions."sendLedgerSummary"]
+  schedule = "0 8 * * *"
+
 [dev]
   command = "vite"
   targetPort = 5173
