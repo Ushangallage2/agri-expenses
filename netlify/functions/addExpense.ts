@@ -1,6 +1,10 @@
 import { Handler } from "@netlify/functions";
 import pool from "./db";
 import jwt from "jsonwebtoken";
+import {
+  ensureExpenseReceiptColumns,
+  normalizeReceipt,
+} from "./utils/expenseReceiptsDb";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 
@@ -10,7 +14,8 @@ export const handler: Handler = async (event) => {
     if (!token) return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
     jwt.verify(token, JWT_SECRET);
 
-    const { user, reason, amount, crop, date } = JSON.parse(event.body || "{}");
+    const { user, reason, amount, crop, date, receiptData, receiptMime } =
+      JSON.parse(event.body || "{}");
 
     if (!user || !reason || typeof amount !== "number" || !crop)
       return { statusCode: 400, body: JSON.stringify({ error: "Missing or invalid fields" }) };
@@ -19,11 +24,34 @@ export const handler: Handler = async (event) => {
     if (userRes.rowCount === 0)
       return { statusCode: 400, body: JSON.stringify({ error: "User not found" }) };
 
+    await ensureExpenseReceiptColumns();
+
+    let receipt: { data: string; mime: string } | null = null;
+    try {
+      receipt = normalizeReceipt(receiptData, receiptMime);
+    } catch (e: any) {
+      return { statusCode: 400, body: JSON.stringify({ error: e.message }) };
+    }
+
     const dateOk =
       typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date);
     const createdAt = dateOk ? `${date} 12:00:00` : null;
 
-    if (createdAt) {
+    if (receipt) {
+      if (createdAt) {
+        await pool.query(
+          `INSERT INTO expenses (expender, reason, amount, crop, created_at, receipt_data, receipt_mime)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [user, reason, amount, crop, createdAt, receipt.data, receipt.mime]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO expenses (expender, reason, amount, crop, created_at, receipt_data, receipt_mime)
+           VALUES ($1, $2, $3, $4, NOW(), $5, $6)`,
+          [user, reason, amount, crop, receipt.data, receipt.mime]
+        );
+      }
+    } else if (createdAt) {
       await pool.query(
         `INSERT INTO expenses (expender, reason, amount, crop, created_at)
          VALUES ($1, $2, $3, $4, $5)`,

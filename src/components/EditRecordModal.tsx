@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { play, unlockAudio } from "../utils/sounds";
+import { compressImageFile } from "../utils/imageCompress";
 
 export type EditableExpense = {
   id: string | number;
@@ -9,6 +10,7 @@ export type EditableExpense = {
   crop: string | null;
   amount: number;
   created_at: string;
+  has_receipt?: boolean;
 };
 
 type Crop = { id: string; name: string };
@@ -46,6 +48,9 @@ export default function EditRecordModal({
     crop: string;
     amount: number;
     date: string;
+    receiptData?: string | null;
+    receiptMime?: string | null;
+    clearReceipt?: boolean;
   }) => Promise<void>;
 }) {
   const [type, setType] = useState<"expense" | "income">("expense");
@@ -54,6 +59,10 @@ export default function EditRecordModal({
   const [amount, setAmount] = useState("");
   const [crop, setCrop] = useState("");
   const [date, setDate] = useState("");
+  const [hadReceipt, setHadReceipt] = useState(false);
+  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  const [receiptMime, setReceiptMime] = useState<string | null>(null);
+  const [clearReceipt, setClearReceipt] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,6 +74,10 @@ export default function EditRecordModal({
     setAmount(String(Math.abs(Number(record.amount))));
     setCrop(record.crop || "");
     setDate(toDateInput(record.created_at));
+    setHadReceipt(Boolean(record.has_receipt));
+    setReceiptPreview(null);
+    setReceiptMime(null);
+    setClearReceipt(false);
     setError(null);
   }, [open, record]);
 
@@ -86,6 +99,20 @@ export default function EditRecordModal({
 
   const isValid = user && reason && amount && crop && date && !Number.isNaN(Number(amount));
 
+  async function onReceiptFile(file: File | null) {
+    if (!file) return;
+    try {
+      const { dataUrl, mimeType } = await compressImageFile(file);
+      setReceiptPreview(dataUrl);
+      setReceiptMime(mimeType);
+      setClearReceipt(false);
+      play("click");
+    } catch (err: any) {
+      play("error");
+      setError(err.message || "Could not read receipt image");
+    }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!isValid || !record) return;
@@ -98,14 +125,21 @@ export default function EditRecordModal({
         type === "expense"
           ? -Math.abs(Number(amount))
           : Math.abs(Number(amount));
-      await onSave({
+      const payload: Parameters<typeof onSave>[0] = {
         id: record.id,
         user,
         reason,
         crop,
         amount: signed,
         date,
-      });
+      };
+      if (clearReceipt) {
+        payload.clearReceipt = true;
+      } else if (receiptPreview) {
+        payload.receiptData = receiptPreview;
+        payload.receiptMime = receiptMime || "image/jpeg";
+      }
+      await onSave(payload);
       play("save");
       onClose();
     } catch (err: any) {
@@ -115,6 +149,8 @@ export default function EditRecordModal({
       setLoading(false);
     }
   }
+
+  const showingExisting = hadReceipt && !clearReceipt && !receiptPreview;
 
   return createPortal(
     <div className="confirm-overlay" role="dialog" aria-modal="true" onClick={onClose}>
@@ -222,6 +258,48 @@ export default function EditRecordModal({
               required
             />
           </label>
+
+          <div className="block text-sm">
+            <span className="eyebrow mb-2 block">Receipt (optional)</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="glass-btn cursor-pointer text-sm">
+                {showingExisting || receiptPreview
+                  ? "Replace receipt"
+                  : "Add receipt"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => void onReceiptFile(e.target.files?.[0] || null)}
+                />
+              </label>
+              {showingExisting && (
+                <span className="text-xs text-sky-300">Receipt on file</span>
+              )}
+              {receiptPreview && (
+                <img
+                  src={receiptPreview}
+                  alt="New receipt"
+                  className="h-12 w-12 rounded-lg object-cover border border-[var(--glass-border)]"
+                />
+              )}
+              {(showingExisting || receiptPreview) && (
+                <button
+                  type="button"
+                  className="glass-btn text-red-300 text-sm"
+                  onClick={() => {
+                    setReceiptPreview(null);
+                    setReceiptMime(null);
+                    setClearReceipt(true);
+                    setHadReceipt(false);
+                  }}
+                >
+                  Remove receipt
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="confirm-panel__actions">

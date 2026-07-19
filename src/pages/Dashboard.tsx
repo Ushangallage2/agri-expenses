@@ -8,6 +8,7 @@ import EditRecordModal from "../components/EditRecordModal";
 import type { EditableExpense } from "../components/EditRecordModal";
 import { play, unlockAudio } from "../utils/sounds";
 import { sortExpensesByDate } from "../utils/sortExpenses";
+import { compressImageFile } from "../utils/imageCompress";
 
 
 
@@ -19,6 +20,7 @@ export type Expense = {
   crop: string | null;
   amount: number;
   created_at: string;
+  has_receipt?: boolean;
 };
 
 
@@ -443,11 +445,31 @@ function AddRecordForm({
   const [amount, setAmount] = useState("");
   const [crop, setCrop] = useState("");
   const [date, setDate] = useState(todayLocalISO);
+  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  const [receiptMime, setReceiptMime] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const isValid = user && reason && amount && crop && date;
+
+  async function onReceiptFile(file: File | null) {
+    if (!file) {
+      setReceiptPreview(null);
+      setReceiptMime(null);
+      return;
+    }
+    try {
+      const { dataUrl, mimeType } = await compressImageFile(file);
+      setReceiptPreview(dataUrl);
+      setReceiptMime(mimeType);
+      play("click");
+    } catch (err: any) {
+      play("error");
+      setError(err.message || "Could not read receipt image");
+      setTimeout(() => setError(null), 4000);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -456,7 +478,7 @@ function AddRecordForm({
     void unlockAudio();
     play("click");
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       user,
       reason,
       crop,
@@ -466,6 +488,10 @@ function AddRecordForm({
           ? -Math.abs(Number(amount))
           : Math.abs(Number(amount)),
     };
+    if (receiptPreview) {
+      payload.receiptData = receiptPreview;
+      payload.receiptMime = receiptMime || "image/jpeg";
+    }
 
     try {
       setLoading(true);
@@ -478,6 +504,8 @@ function AddRecordForm({
       setMessage("Record saved successfully ✔");
       setAmount("");
       setDate(todayLocalISO());
+      setReceiptPreview(null);
+      setReceiptMime(null);
 
       setTimeout(() => setMessage(null), 3000);
     } catch (err: any) {
@@ -547,6 +575,38 @@ function AddRecordForm({
           {loading ? "Saving..." : "Save"}
         </button>
       </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <label className="glass-btn cursor-pointer text-sm">
+          {receiptPreview ? "Change receipt" : "Attach receipt (optional)"}
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => void onReceiptFile(e.target.files?.[0] || null)}
+          />
+        </label>
+        {receiptPreview && (
+          <>
+            <img
+              src={receiptPreview}
+              alt="Receipt preview"
+              className="h-14 w-14 rounded-lg object-cover border border-[var(--glass-border)]"
+            />
+            <button
+              type="button"
+              className="glass-btn text-red-300 text-sm"
+              onClick={() => {
+                setReceiptPreview(null);
+                setReceiptMime(null);
+              }}
+            >
+              Remove
+            </button>
+          </>
+        )}
+      </div>
     </form>
   );
 }
@@ -576,6 +636,30 @@ function ExpenseTable({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
+  const [receiptView, setReceiptView] = useState<{
+    id: string;
+    src: string;
+  } | null>(null);
+  const [receiptLoadingId, setReceiptLoadingId] = useState<string | null>(null);
+
+  async function viewReceipt(id: string) {
+    void unlockAudio();
+    play("click");
+    setReceiptLoadingId(id);
+    try {
+      const res = await fetch(
+        `/.netlify/functions/getExpenseReceipt?id=${encodeURIComponent(id)}`,
+        { credentials: "include" }
+      );
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setReceiptView({ id, src: data.receipt_data });
+    } catch {
+      play("error");
+    } finally {
+      setReceiptLoadingId(null);
+    }
+  }
 
   async function handleDrop(targetId: string) {
     if (!draggingId || draggingId === targetId || reordering) return;
@@ -612,20 +696,20 @@ function ExpenseTable({
       <div className="px-4 pt-3 pb-1">
         <p className="text-xs text-gold-muted">
           Records sort by date (newest first). Drag the handle to move a row —
-          its date updates so charts stay in sync.
+          its date updates so charts stay in sync. Blue glow = view receipt.
         </p>
       </div>
       <div className="max-h-[50vh] overflow-y-auto custom-scroll">
         <table className="w-full table-fixed text-left text-sm md:text-base">
           <thead className="sticky top-0 bg-white/10 backdrop-blur-md">
             <tr>
-              <th className="p-3 w-[6%] text-center" title="Drag to reorder">⋮⋮</th>
-              <th className="p-3 w-[14%]">User</th>
-              <th className="p-3 w-[26%]">Reason</th>
-              <th className="p-3 w-[14%] hidden sm:table-cell">Crop</th>
-              <th className="p-3 w-[14%] text-right pr-4">Amount</th>
+              <th className="p-3 w-[5%] text-center" title="Drag to reorder">⋮⋮</th>
+              <th className="p-3 w-[13%]">User</th>
+              <th className="p-3 w-[22%]">Reason</th>
+              <th className="p-3 w-[12%] hidden sm:table-cell">Crop</th>
+              <th className="p-3 w-[12%] text-right pr-4">Amount</th>
               <th className="p-3 w-[12%] text-right pr-2 hidden md:table-cell">Date</th>
-              <th className="w-[14%] text-right pr-3">Actions</th>
+              <th className="w-[24%] text-right pr-3">Actions</th>
             </tr>
           </thead>
 
@@ -695,7 +779,20 @@ function ExpenseTable({
                     {new Date(e.created_at).toLocaleDateString()}
                   </td>
                   <td className="p-3 text-right pr-3">
-                    <div className="inline-flex items-center gap-2">
+                    <div className="inline-flex items-center gap-1.5 justify-end">
+                      {e.has_receipt ? (
+                        <button
+                          type="button"
+                          onClick={() => void viewReceipt(id)}
+                          disabled={receiptLoadingId === id}
+                          className="receipt-view-btn"
+                          title="View receipt"
+                          aria-label="View receipt"
+                        >
+                          {receiptLoadingId === id ? "…" : "◉"}
+                          <span className="receipt-view-btn__label">view</span>
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => onEdit(e)}
@@ -736,6 +833,38 @@ function ExpenseTable({
           }
         }}
       />
+
+      {receiptView &&
+        createPortal(
+          <div
+            className="confirm-overlay"
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setReceiptView(null)}
+          >
+            <div
+              className="confirm-panel glass-card animate-rise max-w-3xl w-[min(92vw,720px)]"
+              onClick={(ev) => ev.stopPropagation()}
+            >
+              <p className="eyebrow text-center mb-2">Receipt</p>
+              <img
+                src={receiptView.src}
+                alt="Expense receipt"
+                className="w-full max-h-[70vh] object-contain rounded-xl border border-[var(--glass-border)] bg-black/40"
+              />
+              <div className="confirm-panel__actions mt-4">
+                <button
+                  type="button"
+                  className="glass-btn gold-btn confirm-btn w-full"
+                  onClick={() => setReceiptView(null)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
 
       <style>
 {`
@@ -857,6 +986,7 @@ async function fetchAll() {
       e.map((item: any) => ({
         ...item,
         amount: Number(item.amount),
+        has_receipt: Boolean(item.has_receipt),
       }))
     )
   );
@@ -872,6 +1002,7 @@ async function fetchExpenses() {
         e.map((item: any) => ({
           ...item,
           amount: Number(item.amount),
+          has_receipt: Boolean(item.has_receipt),
         }))
       )
     );
@@ -927,6 +1058,9 @@ async function updateRecord(payload: {
   crop: string;
   amount: number;
   date: string;
+  receiptData?: string | null;
+  receiptMime?: string | null;
+  clearReceipt?: boolean;
 }) {
   await safeFetch("/.netlify/functions/updateExpense", {
     method: "POST",
