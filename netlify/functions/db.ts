@@ -24,7 +24,14 @@ function parseDatabaseUrl(url: string) {
   };
 }
 
-const pool = mysql.createPool(parseDatabaseUrl(process.env.DATABASE_URL!));
+const pool = mysql.createPool(
+  parseDatabaseUrl(
+    (process.env.DATABASE_URL || "").trim() ||
+      (() => {
+        throw new Error("DATABASE_URL is not set");
+      })()
+  )
+);
 
 function toMysql(sql: string) {
   return sql.replace(/\$(\d+)/g, "?");

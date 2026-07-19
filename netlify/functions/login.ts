@@ -23,9 +23,6 @@ export const handler: Handler = async (event) => {
     "Content-Type": "application/json",
   };
 
-  console.log("DATABASE_URL:", process.env.DATABASE_URL);
-
-
   // ✅ CORS preflight
   if (event.httpMethod === "OPTIONS") {
     return response(204, "", {
@@ -87,9 +84,8 @@ export const handler: Handler = async (event) => {
         "Set-Cookie": cookie,
       }
     );
-  } catch (err) {
-    console.log("LOGIN ERROR:", err);
-    console.log("STACK:", err?.stack);
+  } catch (err: any) {
+    console.error("LOGIN ERROR:", err?.code || err?.message || err);
     return response(500, "Server error", baseHeaders);
   }
 };
