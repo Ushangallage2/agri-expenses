@@ -5,6 +5,9 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  # PGSSLMODE is typically "require" — not a secret, but it false-positives on
+  # "require" / "required" / "requireAuth" all over the codebase.
+  SECRETS_SCAN_OMIT_KEYS = "PGSSLMODE,PG_CA_CERT"
 
 [functions]
   node_bundler = "esbuild"

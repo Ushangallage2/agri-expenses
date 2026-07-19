@@ -918,7 +918,7 @@ const ledger = splitTotals(expenses);
           label="Ledger"
           {...ledger}
           size={150}
-          imgSrc="/mainCounter.png"
+          imgSrc="/normalCounter.png"
         />
 
         {crops.map((c) => {
