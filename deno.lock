@@ -28,6 +28,8 @@
         "npm:eslint@^9.39.1",
         "npm:globals@^16.5.0",
         "npm:jsonwebtoken@^9.0.3",
+        "npm:mysql2@^3.23.0",
+        "npm:netlify-cli@^26.2.0",
         "npm:pg@^8.18.0",
         "npm:postcss@^8.5.6",
         "npm:react-chartjs-2@^5.3.1",

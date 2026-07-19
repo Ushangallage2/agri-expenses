@@ -1,4 +1,4 @@
-import { Handler } from "@netlify/functions";
+import type { Handler } from "@netlify/functions";
 import pool from "./db";
 import jwt from "jsonwebtoken";
 
@@ -14,11 +14,13 @@ export const handler: Handler = async (event) => {
     const res = await pool.query(`
       SELECT
         crop,
-        DATE(created_at) as date,
-        SUM(amount) as total
+        DATE(created_at) AS date,
+        SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS income,
+        SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) AS expense,
+        SUM(amount) AS profit
       FROM expenses
       GROUP BY crop, DATE(created_at)
-      ORDER BY date ASC;
+      ORDER BY date ASC
     `);
 
     return {

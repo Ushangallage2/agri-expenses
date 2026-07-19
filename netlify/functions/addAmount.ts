@@ -28,7 +28,7 @@ const baseHandler: Handler = async (event) => {
       body: JSON.stringify(res.rows[0]),
     };
   } catch (err: any) {
-    if (err.code === "23505") {
+    if (err.code === "23505" || err.code === "ER_DUP_ENTRY" || err.errno === 1062) {
       return { statusCode: 400, body: "Amount already exists" };
     }
     console.error(err);

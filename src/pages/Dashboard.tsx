@@ -2,7 +2,9 @@ import React, { useEffect, useRef,useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import ExpenseChart from "../components/ExpenseChart";
-import ThemeToggle from "../components/ThemeToggle";
+import SoundToggle from "../components/SoundToggle";
+import ConfirmModal from "../components/ConfirmModal";
+import { play, unlockAudio } from "../utils/sounds";
 
 
 
@@ -20,7 +22,10 @@ export type Expense = {
 type Trend = {
   crop: string;
   date: string;
-  total: number;
+  income?: number;
+  expense?: number;
+  profit?: number;
+  total?: number;
 };
 
 type Crop = {
@@ -33,6 +38,110 @@ type Option = {
   value: string;
   label: string;
 };
+
+function splitTotals(items: Expense[]) {
+  let income = 0;
+  let expense = 0;
+  for (const e of items) {
+    if (e.amount > 0) income += e.amount;
+    else expense += Math.abs(e.amount);
+  }
+  return { income, expense, profit: income - expense };
+}
+
+function CounterCard({
+  label,
+  income,
+  expense,
+  profit,
+  size = 140,
+  imgSrc,
+  onClick,
+  onDelete,
+}: {
+  label: string;
+  income: number;
+  expense: number;
+  profit: number;
+  size?: number;
+  imgSrc?: string;
+  onClick?: () => void;
+  onDelete?: () => void;
+}) {
+  const formatted = profit.toLocaleString();
+  const isHero = label === "Ledger";
+
+  const fontSize =
+    formatted.length <= 5
+      ? size * 0.2
+      : Math.max(size * (0.2 - (formatted.length - 3.5) * 0.018), size * 0.11);
+
+  const Wrapper: any = onClick ? "button" : "div";
+
+  return (
+    <div className="flex flex-col items-center relative group animate-rise">
+      {onDelete && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className="absolute -top-1 -right-1 z-10 w-7 h-7 rounded-full
+                     bg-black/70 border border-red-400/40 text-red-400
+                     hover:bg-red-500/20 text-xs"
+          title={`Delete ${label}`}
+          aria-label={`Delete ${label}`}
+        >
+          ✕
+        </button>
+      )}
+      <Wrapper
+        type={onClick ? "button" : undefined}
+        onClick={onClick}
+        className={`relative rounded-full counter-ring ${onClick ? "cursor-pointer" : ""}`}
+        style={{ width: size, height: size, minWidth: size, minHeight: size }}
+      >
+        {imgSrc && (
+          <img
+            src={imgSrc}
+            alt=""
+            className="w-full h-full rounded-full object-cover opacity-90"
+          />
+        )}
+        {!imgSrc && (
+          <div className="w-full h-full rounded-full bg-gradient-to-br from-[#2a2418] to-[#0c0b09]" />
+        )}
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-2">
+          <span
+            className="font-extrabold select-none text-gold glow-text"
+            style={{ fontSize: `${fontSize}px`, lineHeight: 1 }}
+          >
+            {formatted}
+          </span>
+          {isHero && (
+            <span className="text-[9px] uppercase tracking-widest text-gold-muted mt-1">
+              profit
+            </span>
+          )}
+        </div>
+      </Wrapper>
+
+      <div className="mt-2 text-center w-full max-w-[160px]">
+        <div
+          className={`font-medium text-sm truncate ${onClick ? "text-gold hover:underline" : "text-white"}`}
+        >
+          {label}
+          {onClick ? " →" : ""}
+        </div>
+        <div className="mt-1 flex flex-wrap justify-center gap-1">
+          <span className="stat-pill text-emerald-300/90">+{income.toLocaleString()}</span>
+          <span className="stat-pill text-red-300/90">−{expense.toLocaleString()}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 
 
@@ -346,7 +455,10 @@ function AddRecordForm({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!isValid) return;
-  
+
+    void unlockAudio();
+    play("click");
+
     const payload = {
       user,
       reason,
@@ -356,22 +468,23 @@ function AddRecordForm({
           ? -Math.abs(Number(amount))
           : Math.abs(Number(amount)),
     };
-  
+
     try {
       setLoading(true);
       setError(null);
       setMessage(null);
-  
+
       await onAdd(payload);
-  
+
+      play("save");
       setMessage("Record saved successfully ✔");
       setAmount("");
-  
-      // Auto hide after 3 seconds
+
       setTimeout(() => setMessage(null), 3000);
     } catch (err: any) {
+      play("error");
       setError(err.message || "Failed to save record ❌");
-  
+
       setTimeout(() => setError(null), 4000);
     } finally {
       setLoading(false);
@@ -390,10 +503,10 @@ function AddRecordForm({
 
 
   return (
-    <form onSubmit={submit} className="glass-card mb-6 p-4">
+    <form onSubmit={submit} className="glass-card mb-6 p-4 gold-sheen">
       
       {message && (
-  <div className="mb-3 text-green-400 text-sm font-medium">
+  <div className="mb-3 text-emerald-300 text-sm font-medium">
     {message}
   </div>
 )}
@@ -523,16 +636,17 @@ function ExpenseTable({
         </table>
 
         {deleteId && (
-          <div className="fixed inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-50 animate-fadeIn">
-            <div className="glass-card p-6 w-[90%] max-w-[340px] text-center space-y-4">
-              <h2 className="text-lg font-semibold">Delete this expense?</h2>
-              <p className="text-sm opacity-70">This action cannot be undone.</p>
-              <div className="flex justify-center gap-4 mt-4">
-                <button className="glass-btn" onClick={() => setDeleteId(null)}>Cancel</button>
-                <button className="glass-btn text-red-400" onClick={() => { onDelete(deleteId); setDeleteId(null); }}>Delete</button>
-              </div>
-            </div>
-          </div>
+          <ConfirmModal
+            open
+            title="Delete this record?"
+            message="This action cannot be undone."
+            confirmLabel="Delete"
+            onCancel={() => setDeleteId(null)}
+            onConfirm={() => {
+              onDelete(deleteId);
+              setDeleteId(null);
+            }}
+          />
         )}
       </div>
 
@@ -603,49 +717,38 @@ export default function Dashboard() {
   const [amounts, setAmounts] = useState<number[]>([]);
   const [trends, setTrends] = useState<Trend[]>([]);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<string | null>(null);
 
 
   useEffect(() => {
     fetchAll();
+    loadTrends();
   }, []);
 
-
-
+  async function loadTrends() {
+    try {
+      const data = await safeFetch("/.netlify/functions/getCropsTrend");
+      setTrends(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
 
   async function safeFetch(url: string, options: RequestInit = {}) {
     const res = await fetch(url, { ...options, credentials: "include" });
-  
+
     if (res.status === 401) {
-      setSessionExpired(true); // trigger popup
+      setSessionExpired(true);
       throw new Error("Unauthorized / token expired");
     }
-  
+
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`Request failed: ${res.status} ${text}`);
     }
-  
+
     return res.json();
   }
-
-  
-  
-  useEffect(() => {
-    async function load() {
-      try {
-        const data = await safeFetch(
-          "/.netlify/functions/getCropsTrend"
-        );
-        setTrends(data);
-      } catch (err) {
-        console.error(err);
-      }
-    }
-  
-    load();
-  }, []);
-  
- 
 
 async function fetchAll() {
   const [u, r, c, e, a] = await Promise.all([
@@ -667,83 +770,8 @@ async function fetchAll() {
       amount: Number(item.amount),
     }))
   );
-  ;
   setAmounts(a);
 }
-
-
-function CounterCard({
-  label,
-  value,
-  size = 140,
-  imgSrc,
-}: {
-  label: string;
-  value: number;
-  size?: number;
-  imgSrc?: string;
-}) {
-  const formatted = value.toLocaleString();
-  const isTotal = label === "Total";
-
-  // Dynamically shrink font if number is long
-  const fontSize =
-    formatted.length <= 5
-      ? size * 0.22
-      : Math.max(size * (0.22 - (formatted.length - 3.5) * 0.02), size * 0.12);
-
-  return (
-    <div className="flex flex-col items-center">
-      <div
-        className="relative rounded-full shadow-2xl transition-transform hover:scale-105 hover:shadow-2xl"
-        style={{
-          width: size,
-          height: size,
-          minWidth: size,
-          minHeight: size,
-        }}
-      >
-        {imgSrc && (
-          <img
-            src={imgSrc}
-            alt="Counter background"
-            className="w-full h-full rounded-full object-cover"
-          />
-        )}
-
-        {/* Number displayed on top */}
-        <div
-          className="absolute inset-0 flex items-center justify-center"
-          style={{
-            transform: isTotal ? "translateY(-6%)" : "none",
-          }}
-        >
-          <span
-            className="font-extrabold select-none"
-            style={{
-              fontSize: `${fontSize}px`,
-              color: isTotal ? "#000" : "#fff",
-              lineHeight: 1,
-            }}
-          >
-            {formatted}
-          </span>
-        </div>
-      </div>
-
-      {/* Label below counter */}
-      <div className="mt-2 text-center text-white font-medium text-sm truncate w-full">
-        {label}
-      </div>
-    </div>
-  );
-}
-
-
-
-
-
-
 
 async function fetchExpenses() {
   const e = await safeFetch("/.netlify/functions/getExpenses");
@@ -766,9 +794,9 @@ async function addRecord(data: any) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  fetchExpenses();
-  return res; // IMPORTANT
-  
+  await fetchExpenses();
+  await loadTrends();
+  return res;
 }
 
 
@@ -782,17 +810,37 @@ async function updateCrop(id: string, crop_id: string) {
 }
 
 async function deleteRecord(id: string) {
-  const data = await safeFetch("/.netlify/functions/deleteExpense", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id }),
-  });
+  void unlockAudio();
+  try {
+    const data = await safeFetch("/.netlify/functions/deleteExpense", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
 
+    if (data.success) {
+      play("delete");
+      await fetchExpenses();
+      await loadTrends();
+    }
+  } catch {
+    play("error");
+  }
+}
 
-  if (data.success) {
-    console.log(data.message); // "Deleted"
-    fetchExpenses();
-    
+async function deleteUser(username: string) {
+  void unlockAudio();
+  try {
+    await safeFetch("/.netlify/functions/deleteUser", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username }),
+    });
+    play("delete");
+    setUserToDelete(null);
+    await fetchAll();
+  } catch {
+    play("error");
   }
 }
 
@@ -811,114 +859,97 @@ async function logout() {
 // Total value of all crops (expenses + incomes)
 //const total = expenses.reduce((sum, e) => sum + e.amount, 0);
 
-// Total per crop
-const cropTotals: Record<string, number> = {};
-expenses.forEach(e => {
-  if (!e.crop) return;
-  if (!cropTotals[e.crop]) cropTotals[e.crop] = 0;
-  cropTotals[e.crop] += e.amount;
-});
-
-// Total per user / expender
-const userTotals: Record<string, number> = {};
-expenses.forEach(e => {
-  if (!userTotals[e.expender]) userTotals[e.expender] = 0;
-  userTotals[e.expender] += e.amount;
-});
-
-
+const ledger = splitTotals(expenses);
 
   return (
-    <div className="page-container flex flex-col min-h-screen">
-      {/* ================= MENU ================= */}
-      <header className="flex justify-between items-center mb-6 flex-wrap gap-2">
-        <h1 className="text-2xl">📊 Dashboard</h1>
+    <div className="page-container flex flex-col min-h-screen animate-rise">
+      <header className="flex justify-between items-center mb-8 flex-wrap gap-3">
+        <div>
+          <p className="eyebrow">Operations</p>
+          <h1 className="font-display text-3xl md:text-4xl text-gold glow-text">
+            Agri Ledger
+          </h1>
+        </div>
 
         <div className="flex gap-2 items-center flex-wrap">
-          <button
-            className="glass-btn"
-            onClick={() => navigate("/add-expense?type=user")}
-          >
-            ➕ User
+          <button className="glass-btn" onClick={() => navigate("/add-expense?type=user")}>
+            + User
           </button>
-
-          <button
-            className="glass-btn"
-            onClick={() => navigate("/add-expense?type=reason")}
-          >
-            ➕ Reason
+          <button className="glass-btn" onClick={() => navigate("/add-expense?type=reason")}>
+            + Reason
           </button>
-
-          <button
-            className="glass-btn"
-            onClick={() => navigate("/add-expense?type=crop")}
-          >
-            ➕ Crop
+          <button className="glass-btn" onClick={() => navigate("/add-expense?type=crop")}>
+            + Crop
           </button>
-          <button
-  className="glass-btn"
-  onClick={() => navigate("/add-expense?type=amount")}
->
-  ➕ Amount
-</button>
-          <button
-            className="glass-btn text-red-400"
-            onClick={logout}
-          >
+          <button className="glass-btn" onClick={() => navigate("/add-expense?type=amount")}>
+            + Amount
+          </button>
+          <SoundToggle />
+          <button className="glass-btn text-red-400" onClick={logout}>
             Logout
           </button>
-
-          <ThemeToggle />
         </div>
       </header>
 
-{/* ================= COUNTERS ================= */}
+      {/* Summary: Income / Expense / Profit kept separate */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div className="glass-card gold-sheen text-center py-6">
+          <p className="eyebrow">Total income</p>
+          <p className="font-display text-3xl text-emerald-300">
+            {ledger.income.toLocaleString()}
+          </p>
+        </div>
+        <div className="glass-card text-center py-6">
+          <p className="eyebrow">Total expenses</p>
+          <p className="font-display text-3xl text-red-300">
+            {ledger.expense.toLocaleString()}
+          </p>
+        </div>
+        <div className="glass-card text-center py-6">
+          <p className="eyebrow">Final profit</p>
+          <p className={`font-display text-3xl glow-text ${ledger.profit >= 0 ? "text-gold" : "text-red-300"}`}>
+            {ledger.profit.toLocaleString()}
+          </p>
+        </div>
+      </div>
 
-<div className="glass-card p-4 mb-6 flex flex-wrap gap-6 justify-center">
-  {/* Main Total */}
-  <CounterCard
-    label="Total"
-    value={expenses.reduce((sum, e) => sum + e.amount, 0)}
-    size={140}
-    imgSrc="/mainCounter.png" // <-- public folder path
-  />
+      <div className="glass-card p-4 mb-6 flex flex-wrap gap-8 justify-center">
+        <CounterCard
+          label="Ledger"
+          {...ledger}
+          size={150}
+          imgSrc="/mainCounter.png"
+        />
 
-  {/* Crop totals */}
-  {crops.map(c => {
-    const total = expenses
-      .filter(e => e.crop === c.name)
-      .reduce((sum, e) => sum + e.amount, 0);
-      console.log(total)
-    return (
-      <CounterCard
-        key={c.name}
-        label={c.name}
-        value={total}
-        imgSrc="/normalCounter.png"
-      />
-    );
-  })}
+        {crops.map((c) => {
+          const t = splitTotals(expenses.filter((e) => e.crop === c.name));
+          return (
+            <CounterCard
+              key={c.name}
+              label={c.name}
+              {...t}
+              imgSrc="/normalCounter.png"
+              onClick={() =>
+                navigate(`/crops/${encodeURIComponent(c.name)}/notes`)
+              }
+            />
+          );
+        })}
 
-  {/* User totals */}
-  {users.map(u => {
-    const total = expenses
-      .filter(e => e.expender === u)
-      .reduce((sum, e) => sum + e.amount, 0);
-    return (
-      <CounterCard
-        key={u}
-        label={u}
-        value={total}
-        imgSrc="/normalCounter.png"
-      />
-    );
-  })}
-</div>
+        {users.map((u) => {
+          const t = splitTotals(expenses.filter((e) => e.expender === u));
+          return (
+            <CounterCard
+              key={u}
+              label={u}
+              {...t}
+              imgSrc="/normalCounter.png"
+              onDelete={() => setUserToDelete(u)}
+            />
+          );
+        })}
+      </div>
 
-
-
-
-      {/* ================= CONTENT ================= */}
       <AddRecordForm
         users={users}
         reasons={reasons}
@@ -930,34 +961,49 @@ expenses.forEach(e => {
       <ExpenseTable
         expenses={expenses}
         crops={crops}
-       amounts={amounts}
+        amounts={amounts}
         onDelete={deleteRecord}
         onUpdateCrop={updateCrop}
       />
 
-<div className="glass-card p-4 mt-4">
-  <h2 className="text-center mb-2">Daily Expenses Overview</h2>
-  <div className="w-full" style={{ height: "400px" }}>
-    <ExpenseChart trends={trends} />
-  </div>
-</div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+        <div className="glass-card p-4">
+          <h2 className="font-display text-xl text-center text-gold mb-2">
+            Cumulative income
+          </h2>
+          <div className="w-full" style={{ height: "320px" }}>
+            <ExpenseChart trends={trends} metric="income" />
+          </div>
+        </div>
+        <div className="glass-card p-4">
+          <h2 className="font-display text-xl text-center text-gold mb-2">
+            Cumulative expenses
+          </h2>
+          <div className="w-full" style={{ height: "320px" }}>
+            <ExpenseChart trends={trends} metric="expense" />
+          </div>
+        </div>
+      </div>
+
+      <div className="glass-card p-4 mt-4">
+        <h2 className="font-display text-xl text-center text-gold mb-2">
+          Cumulative profit by crop
+        </h2>
+        <div className="w-full" style={{ height: "360px" }}>
+          <ExpenseChart trends={trends} metric="profit" />
+        </div>
+      </div>
 
 {sessionExpired && (
-  <div className="fixed inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-50 animate-fadeIn">
+  <div className="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-50 animate-fadeIn">
     <div className="glass-card p-6 w-[90%] max-w-[340px] text-center space-y-4">
-      <h2 className="text-lg font-semibold">Session Expired</h2>
-      <p className="text-sm opacity-70">Your session has expired. Please login again.</p>
+      <h2 className="font-display text-2xl text-gold">Session expired</h2>
+      <p className="text-sm text-gold-muted">Please login again.</p>
       <div className="flex justify-center gap-4 mt-4">
-        <button
-          className="glass-btn"
-          onClick={() => setSessionExpired(false)}
-        >
+        <button className="glass-btn" onClick={() => setSessionExpired(false)}>
           Close
         </button>
-        <button
-          className="glass-btn text-red-400"
-          onClick={() => navigate("/login")}
-        >
+        <button className="glass-btn gold-btn" onClick={() => navigate("/login")}>
           Login
         </button>
       </div>
@@ -965,8 +1011,20 @@ expenses.forEach(e => {
   </div>
 )}
 
-
-
+      <ConfirmModal
+        open={!!userToDelete}
+        title="Delete user?"
+        message={
+          userToDelete
+            ? `Remove “${userToDelete}” from the ledger? Past records will keep the name.`
+            : undefined
+        }
+        confirmLabel="Delete"
+        onCancel={() => setUserToDelete(null)}
+        onConfirm={() => {
+          if (userToDelete) void deleteUser(userToDelete);
+        }}
+      />
 
     </div>
   );

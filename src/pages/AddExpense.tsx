@@ -1,92 +1,114 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { API } from "../utils/api";
+import { play, unlockAudio } from "../utils/sounds";
+import SoundToggle from "../components/SoundToggle";
+import ConfirmModal from "../components/ConfirmModal";
 
 export default function AddExpense() {
   const [user, setUser] = useState("");
   const [reason, setReason] = useState("");
   const [amount, setAmount] = useState("");
   const [crop, setCrop] = useState("");
-
   const [users, setUsers] = useState<string[]>([]);
   const [password, setPassword] = useState("");
   const [reasons, setReasons] = useState<string[]>([]);
   const [savedAmounts, setSavedAmounts] = useState<number[]>([]);
-  const [crops, setCrops] = useState<string[]>([]); // optional if endpoint exists
-
+  const [crops, setCrops] = useState<string[]>([]);
   const [status, setStatus] = useState<null | {
     type: "success" | "error";
     message: string;
   }>(null);
   const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [userToDelete, setUserToDelete] = useState<string | null>(null);
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const type = searchParams.get("type") || "expense";
 
-  /* ================= FETCH DATA ================= */
+  async function loadUsers() {
+    const r = await fetch(`${API}/getUsers`, { credentials: "include" });
+    if (r.ok) setUsers(await r.json());
+  }
+
   useEffect(() => {
-    if (type === "user") {
-    fetch("/.netlify/functions/getUsers", { credentials: "include" })
-      .then(r => r.json())
-      .then(setUsers)
-      .catch(console.error);
-    }
+    if (type === "user") loadUsers().catch(console.error);
     if (type === "reason") {
-    fetch("/.netlify/functions/getReasons", { credentials: "include" })
-      .then(r => r.json())
-      .then(setReasons)
-      .catch(console.error);
+      fetch(`${API}/getReasons`, { credentials: "include" })
+        .then((r) => r.json())
+        .then(setReasons)
+        .catch(console.error);
     }
     if (type === "amount") {
-    fetch("/.netlify/functions/getAmounts", { credentials: "include" })
-      .then(r => r.json())
-      .then(setSavedAmounts)
-      .catch(console.error);
+      fetch(`${API}/getAmounts`, { credentials: "include" })
+        .then((r) => r.json())
+        .then(setSavedAmounts)
+        .catch(console.error);
     }
     if (type === "crop") {
-      fetch("/.netlify/functions/getCrops", { credentials: "include" })
-        .then(r => r.json())
-        .then((c) => setCrops(c.map((x: any) => x.name)))
+      fetch(`${API}/getCrops`, { credentials: "include" })
+        .then((r) => r.json())
+        .then((c) => setCrops(c.map((x: { name: string }) => x.name)))
         .catch(console.error);
     }
   }, [type]);
 
-  /* ================= SUBMIT ================= */
+  async function deleteUser(username: string) {
+    setDeleting(username);
+    void unlockAudio();
+    try {
+      const res = await fetch(`${API}/deleteUser`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ username }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      play("delete");
+      setUserToDelete(null);
+      await loadUsers();
+    } catch (err: any) {
+      play("error");
+      setStatus({ type: "error", message: err.message || "Delete failed" });
+    } finally {
+      setDeleting(null);
+    }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setStatus(null);
     setLoading(true);
+    void unlockAudio();
+    play("click");
 
     try {
       let res: Response;
 
       if (type === "user") {
-        res = await fetch("/.netlify/functions/addUser", {
+        res = await fetch(`${API}/addUser`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({
-            username: user,
-            password
-          }),
-          
+          body: JSON.stringify({ username: user, password }),
         });
       } else if (type === "reason") {
-        res = await fetch("/.netlify/functions/addReason", {
+        res = await fetch(`${API}/addReason`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify({ reason }),
         });
       } else if (type === "amount") {
-        res = await fetch("/.netlify/functions/addAmount", {
+        res = await fetch(`${API}/addAmount`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify({ amount: Number(amount) }),
         });
       } else if (type === "crop") {
-        res = await fetch("/.netlify/functions/addCrop", {
+        res = await fetch(`${API}/addCrop`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -97,61 +119,50 @@ export default function AddExpense() {
       }
 
       if (!res.ok) {
-        const msg = await res.text();
-        throw new Error(msg || "Failed");
+        throw new Error((await res.text()) || "Failed");
       }
 
-      setStatus({ type: "success", message: "Saved successfully ✅" });
-
+      play("save");
+      setStatus({ type: "success", message: "Saved successfully" });
       setTimeout(() => navigate("/dashboard"), 800);
     } catch (err: any) {
+      play("error");
       setStatus({ type: "error", message: err.message });
     } finally {
       setLoading(false);
     }
   }
 
-  /* ================= LOGOUT ================= */
   async function logout() {
-    await fetch("/.netlify/functions/logout", {
-      method: "POST",
-      credentials: "include",
-    });
+    await fetch(`${API}/logout`, { method: "POST", credentials: "include" });
     navigate("/login");
   }
 
-  /* ================= UI ================= */
-  return (
-    <div className="page-container">
-      {/* HEADER */}
-      <header className="mb-4 grid grid-cols-3 items-center">
-      <button
-  type="button"
-  onClick={() => navigate(-1)}
-  aria-label="Go back"
-  className="
-    flex items-center justify-center
-    w-20 h-10
-    rounded-lg
-    glass-card
-    hover:bg-white/20
-    active:scale-95
-  "
->
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    className="h-6 w-6"
-    fill="none"
-    viewBox="0 0 24 24"
-    stroke="currentColor"
-    strokeWidth={2}
-  >
-    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-  </svg>
-</button>
+  const list =
+    type === "user"
+      ? users
+      : type === "reason"
+        ? reasons
+        : type === "amount"
+          ? savedAmounts
+          : crops;
 
-        <h2 className="text-xl text-center capitalize">Add {type}</h2>
-        <div className="text-right">
+  return (
+    <div className="page-container animate-rise">
+      <header className="mb-6 grid grid-cols-3 items-center">
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="glass-btn w-fit"
+          aria-label="Go back"
+        >
+          ← Back
+        </button>
+        <h2 className="font-display text-2xl text-center text-gold capitalize">
+          Add {type}
+        </h2>
+        <div className="text-right flex justify-end gap-2">
+          <SoundToggle />
           <button onClick={logout} className="glass-btn text-red-400">
             Logout
           </button>
@@ -159,76 +170,117 @@ export default function AddExpense() {
       </header>
 
       <form onSubmit={submit} className="glass-card max-w-md mx-auto">
-        {/* STATUS */}
         {status && (
           <div
             className={`mb-3 p-2 rounded text-sm ${
               status.type === "success"
-                ? "bg-green-500/20 text-green-300"
-                : "bg-red-500/20 text-red-300"
+                ? "bg-emerald-500/15 text-emerald-300"
+                : "bg-red-500/15 text-red-300"
             }`}
           >
             {status.message}
           </div>
         )}
 
-{type === "user" && (
-  <>
-    <input
-      className="glass-input mb-3"
-      placeholder="Username"
-      value={user}
-      onChange={e => setUser(e.target.value)}
-      required
-    />
-
-    <input
-      className="glass-input mb-3"
-      type="password"
-      placeholder="Password"
-      value={password}
-      onChange={e => setPassword(e.target.value)}
-      required
-    />
-  </>
-)}
-
+        {type === "user" && (
+          <>
+            <input
+              className="glass-input mb-3"
+              placeholder="Username"
+              value={user}
+              onChange={(e) => setUser(e.target.value)}
+              required
+            />
+            <input
+              className="glass-input mb-3"
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </>
+        )}
 
         {type === "reason" && (
-          <input className="glass-input mb-3" placeholder="Reason" value={reason} onChange={e => setReason(e.target.value)} required />
+          <input
+            className="glass-input mb-3"
+            placeholder="Reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            required
+          />
         )}
 
         {type === "amount" && (
-          <input className="glass-input mb-3" type="number" placeholder="Amount" value={amount} onChange={e => setAmount(e.target.value)} required />
+          <input
+            className="glass-input mb-3"
+            type="number"
+            placeholder="Amount"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            required
+          />
         )}
 
         {type === "crop" && (
-          <input className="glass-input mb-3" placeholder="Crop name" value={crop} onChange={e => setCrop(e.target.value)} required />
+          <input
+            className="glass-input mb-3"
+            placeholder="Crop name"
+            value={crop}
+            onChange={(e) => setCrop(e.target.value)}
+            required
+          />
         )}
 
-        <button className="glass-btn w-full mb-4" disabled={loading}>
-          {loading ? "Saving..." : "Save"}
+        <button className="glass-btn gold-btn w-full mb-4" disabled={loading}>
+          {loading ? "Saving…" : "Save"}
         </button>
 
-        {/* EXISTING LIST */}
-        {(type === "user" || type === "reason" || type === "amount" || type === "crop") && (
-          <div className="border-t border-white/20 pt-3">
-            <p className="text-sm opacity-70 mb-2">Existing {type}s</p>
-
-            <div className="max-h-40 overflow-y-auto text-sm space-y-1">
-              {(type === "user" ? users :
-                type === "reason" ? reasons :
-                type === "amount" ? savedAmounts :
-                crops
-              ).map((v, i) => (
-                <div key={i} className="opacity-80">
-                  • {v}
-                </div>
-              ))}
-            </div>
+        <div className="border-t border-[var(--glass-border)] pt-3">
+          <p className="text-sm text-gold-muted mb-2">Existing {type}s</p>
+          <div className="max-h-48 overflow-y-auto text-sm space-y-1 custom-scroll">
+            {list.map((v, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg hover:bg-white/5"
+              >
+                <span className="opacity-90 truncate">• {String(v)}</span>
+                {type === "user" && (
+                  <button
+                    type="button"
+                    className="text-red-400 hover:text-red-300 shrink-0 px-1"
+                    disabled={deleting === String(v)}
+                    onClick={() => setUserToDelete(String(v))}
+                    aria-label={`Delete ${v}`}
+                    title="Delete user"
+                  >
+                    {deleting === String(v) ? "…" : "✕"}
+                  </button>
+                )}
+              </div>
+            ))}
+            {list.length === 0 && (
+              <p className="text-gold-muted/70 text-xs">None yet</p>
+            )}
           </div>
-        )}
+        </div>
       </form>
+
+      <ConfirmModal
+        open={!!userToDelete}
+        title="Delete user?"
+        message={
+          userToDelete
+            ? `Remove “${userToDelete}”? Past records will keep the name.`
+            : undefined
+        }
+        confirmLabel={deleting ? "Deleting…" : "Delete"}
+        onCancel={() => !deleting && setUserToDelete(null)}
+        onConfirm={() => {
+          if (userToDelete && !deleting) void deleteUser(userToDelete);
+        }}
+      />
     </div>
   );
 }

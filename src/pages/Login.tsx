@@ -1,5 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { API } from "../utils/api";
+import { play, unlockAudio } from "../utils/sounds";
+import SoundToggle from "../components/SoundToggle";
 
 export default function Login() {
   const [username, setUsername] = useState("");
@@ -8,52 +11,57 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  // Determine base URL for Netlify Functions
-  const BASE = import.meta.env.DEV
-    ? "http://localhost:8888/.netlify/functions"
-    : "/.netlify/functions";
-
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
+    void unlockAudio();
+    play("click");
 
     try {
-      const res = await fetch(`${BASE}/login`, {
+      const res = await fetch(`${API}/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include", // 🔑 cookie will be saved automatically
+        credentials: "include",
         body: JSON.stringify({ username, password }),
       });
 
       if (!res.ok) {
         const msg = await res.text();
-        console.log("Login error:", msg);
+        play("error");
         setError(msg || "Invalid credentials");
         setLoading(false);
         return;
       }
 
-      // ✅ On success, cookie is already set (HttpOnly)
-      navigate("/dashboard"); // redirect to protected page
-    } catch (err) {
-      console.error("Login request failed:", err);
+      play("success");
+      navigate("/dashboard");
+    } catch {
+      play("error");
       setError("Server error. Try again.");
       setLoading(false);
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
+    <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden">
+      <div className="absolute inset-0 gold-sheen pointer-events-none opacity-40" />
+      <div className="absolute top-4 right-4 z-20">
+        <SoundToggle />
+      </div>
       <form
         onSubmit={handleLogin}
-        className="glass-card w-full max-w-sm"
+        className="glass-card w-full max-w-md relative z-10 animate-rise"
       >
-        <h1 className="text-2xl text-center mb-6">🌾 Agri Expenses</h1>
+        <p className="eyebrow text-center">Private ledger</p>
+        <h1 className="font-display text-4xl text-center text-gold glow-text mb-2">
+          Agri Ledger
+        </h1>
+        <p className="text-center text-gold-muted text-sm mb-8">
+          Income, expenses, and profit — kept clear.
+        </p>
 
-        {error && (
-          <p className="text-red-400 text-sm mb-3">{error}</p>
-        )}
+        {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
 
         <input
           className="glass-input mb-3"
@@ -64,7 +72,7 @@ export default function Login() {
         />
 
         <input
-          className="glass-input mb-4"
+          className="glass-input mb-6"
           type="password"
           placeholder="Password"
           value={password}
@@ -74,10 +82,10 @@ export default function Login() {
 
         <button
           type="submit"
-          className={`glass-btn w-full ${loading ? "opacity-50 cursor-not-allowed" : ""}`}
+          className={`glass-btn gold-btn w-full ${loading ? "opacity-50 cursor-not-allowed" : ""}`}
           disabled={loading}
         >
-          {loading ? "Logging in..." : "Login"}
+          {loading ? "Signing in…" : "Enter ledger"}
         </button>
       </form>
     </div>
