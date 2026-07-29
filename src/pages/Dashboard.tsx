@@ -36,6 +36,7 @@ type Trend = {
 type Crop = {
   id: string;
   name: string;
+  plant_count?: number;
 };
 
 
@@ -63,6 +64,7 @@ function CounterCard({
   imgSrc,
   onClick,
   onDelete,
+  plantCount,
 }: {
   label: string;
   income: number;
@@ -72,6 +74,7 @@ function CounterCard({
   imgSrc?: string;
   onClick?: () => void;
   onDelete?: () => void;
+  plantCount?: number | null;
 }) {
   const formatted = profit.toLocaleString();
   const isHero = label === "Ledger";
@@ -110,6 +113,12 @@ function CounterCard({
             </span>
           )}
         </div>
+        {plantCount != null && (
+          <div className="plant-count-badge" title={`${plantCount} plants`}>
+            <span className="plant-count-badge__value">{plantCount}</span>
+            <span className="plant-count-badge__label">plants</span>
+          </div>
+        )}
       </div>
 
       <div className="mt-2 text-center w-full max-w-[160px]">
@@ -1266,6 +1275,7 @@ const ledger = splitTotals(expenses);
               label={c.name}
               {...t}
               imgSrc="/normalCounter.png"
+              plantCount={Number(c.plant_count) || 0}
               onClick={() =>
                 navigate(`/crops/${encodeURIComponent(c.name)}/notes`)
               }

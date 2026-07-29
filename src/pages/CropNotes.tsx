@@ -38,6 +38,26 @@ export default function CropNotes() {
   const [noteToDelete, setNoteToDelete] = useState<number | null>(null);
   const [imageToDelete, setImageToDelete] = useState<number | null>(null);
   const [lightbox, setLightbox] = useState<CropImage | null>(null);
+  const [plantCount, setPlantCount] = useState<string>("0");
+  const [savedPlantCount, setSavedPlantCount] = useState(0);
+  const [savingPlants, setSavingPlants] = useState(false);
+  const [plantMessage, setPlantMessage] = useState<string | null>(null);
+
+  async function loadPlantCount() {
+    const res = await fetch(`${API}/getCrops`, { credentials: "include" });
+    if (res.status === 401) {
+      navigate("/login");
+      return;
+    }
+    if (!res.ok) throw new Error(await res.text());
+    const rows = await res.json();
+    const match = rows.find(
+      (r: { name: string; plant_count?: number }) => r.name === crop
+    );
+    const n = Number(match?.plant_count) || 0;
+    setPlantCount(String(n));
+    setSavedPlantCount(n);
+  }
 
   async function loadNotes() {
     const res = await fetch(
@@ -73,11 +93,53 @@ export default function CropNotes() {
       setError(err.message || "Failed to load notes");
     }
     try {
+      await loadPlantCount();
+    } catch (err: any) {
+      console.error(err);
+    }
+    try {
       await loadImages();
     } catch (err: any) {
       // Don't block the page if image API isn't available yet
       console.error(err);
       setError((prev) => prev || "Images unavailable — restart npm run dev if you're local.");
+    }
+  }
+
+  async function savePlantCount(e: React.FormEvent) {
+    e.preventDefault();
+    const n = Number(plantCount);
+    if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+      setError("Plant count must be a whole number ≥ 0");
+      return;
+    }
+    setSavingPlants(true);
+    setError(null);
+    setPlantMessage(null);
+    void unlockAudio();
+    play("click");
+    try {
+      const res = await fetch(`${API}/updateCropPlantCount`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ crop, plantCount: n }),
+      });
+      if (res.status === 401) {
+        navigate("/login");
+        return;
+      }
+      if (!res.ok) throw new Error(await res.text());
+      setSavedPlantCount(n);
+      setPlantCount(String(n));
+      play("save");
+      setPlantMessage("Plant count saved");
+      setTimeout(() => setPlantMessage(null), 2500);
+    } catch (err: any) {
+      play("error");
+      setError(err.message || "Failed to save plant count");
+    } finally {
+      setSavingPlants(false);
     }
   }
 
@@ -222,6 +284,53 @@ export default function CropNotes() {
         </div>
         <SoundToggle />
       </header>
+
+      <section className="glass-card max-w-3xl mx-auto mb-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="eyebrow">Inventory</p>
+            <h2 className="font-display text-xl text-gold">Plant count</h2>
+            <p className="text-sm text-gold-muted mt-1">
+              Current:{" "}
+              <span className="text-emerald-300 font-semibold">
+                {savedPlantCount.toLocaleString()}
+              </span>{" "}
+              plants — shown on the dashboard counter.
+            </p>
+          </div>
+          <div className="plant-count-badge plant-count-badge--lg" title="Current plants">
+            <span className="plant-count-badge__value">{savedPlantCount}</span>
+            <span className="plant-count-badge__label">plants</span>
+          </div>
+        </div>
+        <form
+          onSubmit={savePlantCount}
+          className="mt-4 flex flex-wrap items-end gap-3"
+        >
+          <label className="block flex-1 min-w-[140px]">
+            <span className="eyebrow mb-1 block">Number of plants</span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              className="glass-input"
+              value={plantCount}
+              onChange={(e) => setPlantCount(e.target.value)}
+              required
+            />
+          </label>
+          <button
+            type="submit"
+            className={`glass-btn gold-btn ${savingPlants ? "opacity-50" : ""}`}
+            disabled={savingPlants}
+          >
+            {savingPlants ? "Saving…" : "Save count"}
+          </button>
+        </form>
+        {plantMessage && (
+          <p className="text-emerald-300 text-sm mt-3">{plantMessage}</p>
+        )}
+      </section>
 
       {/* Gallery — always visible at top */}
       <section className="glass-card max-w-3xl mx-auto mb-6">
