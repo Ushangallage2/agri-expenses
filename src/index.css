@@ -452,6 +452,26 @@
   line-height: 1;
 }
 
+.todo-ripple--counter {
+  position: absolute;
+  top: -0.15rem;
+  right: -0.15rem;
+  z-index: 2;
+  gap: 0.28rem;
+  padding: 0.22rem 0.45rem 0.22rem 0.28rem;
+  font-size: 0.7rem;
+  pointer-events: none;
+  box-shadow:
+    0 0 10px rgba(251, 146, 60, 0.45),
+    0 0 20px rgba(154, 52, 18, 0.35);
+}
+
+.todo-ripple--counter .todo-ripple__icon {
+  width: 1.05rem;
+  height: 1.05rem;
+  font-size: 0.55rem;
+}
+
 .todo-ripple__icon {
   position: relative;
   width: 1.35rem;

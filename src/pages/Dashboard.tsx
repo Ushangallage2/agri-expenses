@@ -67,6 +67,7 @@ function CounterCard({
   onClick,
   onDelete,
   plantCount,
+  openTodos,
 }: {
   label: string;
   income: number;
@@ -77,9 +78,11 @@ function CounterCard({
   onClick?: () => void;
   onDelete?: () => void;
   plantCount?: number | null;
+  openTodos?: number | null;
 }) {
   const formatted = profit.toLocaleString();
   const isHero = label === "Ledger";
+  const todoCount = Number(openTodos) || 0;
 
   const fontSize =
     formatted.length <= 5
@@ -115,6 +118,18 @@ function CounterCard({
             </span>
           )}
         </div>
+        {todoCount > 0 && (
+          <span
+            className="todo-ripple todo-ripple--counter"
+            title={`${todoCount} open todo${todoCount === 1 ? "" : "s"}`}
+            aria-label={`${todoCount} open todo${todoCount === 1 ? "" : "s"}`}
+          >
+            <span className="todo-ripple__icon" aria-hidden>
+              ✓
+            </span>
+            <span className="todo-ripple__count">{todoCount}</span>
+          </span>
+        )}
         {plantCount != null && (
           <div className="plant-count-badge" title={`${plantCount} plants`}>
             <span className="plant-count-badge__value">{plantCount}</span>
@@ -1018,6 +1033,9 @@ export default function Dashboard() {
   const [amounts, setAmounts] = useState<number[]>([]);
   const [trends, setTrends] = useState<Trend[]>([]);
   const [plantTrends, setPlantTrends] = useState<PlantCountPoint[]>([]);
+  const [cropTodoCounts, setCropTodoCounts] = useState<Record<string, number>>(
+    {}
+  );
   const [sessionExpired, setSessionExpired] = useState(false);
   const [userToDelete, setUserToDelete] = useState<string | null>(null);
   const [editingRecord, setEditingRecord] = useState<EditableExpense | null>(null);
@@ -1064,12 +1082,13 @@ export default function Dashboard() {
   }
 
 async function fetchAll() {
-  const [u, r, c, e, a] = await Promise.all([
+  const [u, r, c, e, a, todos] = await Promise.all([
     safeFetch("/.netlify/functions/getUsers"),
     safeFetch("/.netlify/functions/getReasons"),
     safeFetch("/.netlify/functions/getCrops"),
     safeFetch("/.netlify/functions/getExpenses"),
     safeFetch("/.netlify/functions/getAmounts"),
+    safeFetch("/.netlify/functions/getCropTodoCounts").catch(() => []),
   ]);
 
   if (!u || !r || !c || !e || !a) return;
@@ -1087,6 +1106,11 @@ async function fetchAll() {
     )
   );
   setAmounts(a);
+  const counts: Record<string, number> = {};
+  for (const row of todos || []) {
+    counts[row.crop_name] = Number(row.open_todos) || 0;
+  }
+  setCropTodoCounts(counts);
 }
 
 async function fetchExpenses() {
@@ -1306,6 +1330,7 @@ const ledger = splitTotals(expenses);
               {...t}
               imgSrc="/normalCounter.png"
               plantCount={Number(c.plant_count) || 0}
+              openTodos={cropTodoCounts[c.name] || 0}
               onClick={() =>
                 navigate(`/crops/${encodeURIComponent(c.name)}/notes`)
               }
