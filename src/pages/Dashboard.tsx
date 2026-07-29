@@ -1201,6 +1201,23 @@ async function logout() {
 
 const ledger = splitTotals(expenses);
 
+  const plantSpendKpis = crops.map((c) => {
+    const spent = expenses
+      .filter((e) => e.crop === c.name && e.amount < 0)
+      .reduce((sum, e) => sum + Math.abs(e.amount), 0);
+    const plants = Number(c.plant_count) || 0;
+    return {
+      name: c.name,
+      spent,
+      plants,
+      perPlant: plants > 0 ? spent / plants : null,
+    };
+  });
+  const totalPlantSpend = plantSpendKpis.reduce((s, k) => s + k.spent, 0);
+  const totalPlants = plantSpendKpis.reduce((s, k) => s + k.plants, 0);
+  const overallSpendPerPlant =
+    totalPlants > 0 ? totalPlantSpend / totalPlants : null;
+
   return (
     <div className="page-container flex flex-col min-h-screen animate-rise">
       <header className="flex justify-between items-center mb-8 flex-wrap gap-3">
@@ -1328,6 +1345,60 @@ const ledger = splitTotals(expenses);
         onClose={() => setEditingRecord(null)}
         onSave={updateRecord}
       />
+
+      <div className="glass-card p-4 mt-4 mb-4 gold-sheen">
+        <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
+          <div>
+            <p className="eyebrow">Graph KPI</p>
+            <h2 className="font-display text-xl md:text-2xl text-gold">
+              Spent per plant
+            </h2>
+            <p className="text-sm text-gold-muted mt-1">
+              Total expenses ÷ plant count (set on each crop’s notes page).
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="eyebrow">Overall</p>
+            <p className="font-display text-3xl text-emerald-300 glow-text">
+              {overallSpendPerPlant == null
+                ? "—"
+                : overallSpendPerPlant.toLocaleString(undefined, {
+                    maximumFractionDigits: 2,
+                  })}
+            </p>
+            <p className="text-xs text-gold-muted mt-1">
+              {totalPlantSpend.toLocaleString()} spent · {totalPlants.toLocaleString()}{" "}
+              plants
+            </p>
+          </div>
+        </div>
+
+        {plantSpendKpis.length === 0 ? (
+          <p className="text-sm text-gold-muted">Add crops and plant counts to see KPIs.</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {plantSpendKpis.map((k) => (
+              <div
+                key={k.name}
+                className="rounded-xl border border-emerald-400/25 bg-emerald-950/25 px-4 py-3"
+              >
+                <p className="text-sm text-gold truncate font-medium">{k.name}</p>
+                <p className="font-display text-2xl text-emerald-300 mt-1">
+                  {k.perPlant == null
+                    ? "—"
+                    : k.perPlant.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })}
+                </p>
+                <p className="text-[11px] text-gold-muted mt-1">
+                  {k.spent.toLocaleString()} spent ÷ {k.plants.toLocaleString()} plants
+                  {k.plants === 0 ? " · set plant count in notes" : ""}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
         <div className="glass-card p-4">
