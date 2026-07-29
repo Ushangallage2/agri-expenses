@@ -22,50 +22,38 @@ ChartJS.register(
   Filler
 );
 
-export type Trend = {
+export type PlantCountPoint = {
   crop: string;
+  plant_count: number;
   date: string;
-  income?: number;
-  expense?: number;
-  profit?: number;
-  total?: number;
 };
 
-type Metric = "income" | "expense" | "profit";
-
-function metricValue(row: Trend, metric: Metric): number {
-  if (metric === "income") return Number(row.income ?? (Number(row.total) > 0 ? row.total : 0));
-  if (metric === "expense") return Number(row.expense ?? (Number(row.total) < 0 ? Math.abs(Number(row.total)) : 0));
-  return Number(row.profit ?? row.total ?? 0);
-}
-
-export default function ExpenseChart({
-  trends = [],
-  metric = "profit",
+export default function PlantCountChart({
+  points = [],
 }: {
-  trends?: Trend[];
-  metric?: Metric;
+  points?: PlantCountPoint[];
 }) {
   const dateSet = new Set<string>();
   const cropMap = new Map<string, Map<string, number>>();
 
-  for (const row of trends) {
+  for (const row of points) {
     const date = String(row.date).split("T")[0];
     dateSet.add(date);
     if (!cropMap.has(row.crop)) cropMap.set(row.crop, new Map());
-    cropMap.get(row.crop)!.set(date, metricValue(row, metric));
+    cropMap.get(row.crop)!.set(date, Number(row.plant_count) || 0);
   }
 
   const dates = Array.from(dateSet).sort();
 
-  const cumulativeMap = new Map<string, number[]>();
+  // Forward-fill so each crop keeps its last known count across dates
+  const seriesMap = new Map<string, (number | null)[]>();
   for (const [crop, dateMap] of cropMap.entries()) {
-    let running = 0;
-    cumulativeMap.set(
+    let last: number | null = null;
+    seriesMap.set(
       crop,
       dates.map((date) => {
-        running += dateMap.get(date) ?? 0;
-        return running;
+        if (dateMap.has(date)) last = dateMap.get(date)!;
+        return last;
       })
     );
   }
@@ -75,24 +63,28 @@ export default function ExpenseChart({
     return dt.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
   });
 
-  const datasets = Array.from(cumulativeMap.entries()).map(([crop, data], index) => {
+  const datasets = Array.from(seriesMap.entries()).map(([crop, data], index) => {
     const color = CHART_LINE_COLORS[index % CHART_LINE_COLORS.length];
     return {
       label: crop,
       data,
-      tension: 0.35,
+      tension: 0.25,
       borderWidth: 2.5,
       borderColor: color,
-      backgroundColor: color + "22",
-      fill: true,
+      backgroundColor: color + "18",
+      fill: false,
+      spanGaps: true,
       pointRadius: 3,
       pointBackgroundColor: color,
+      stepped: false,
     };
   });
 
-  const allValues = datasets.flatMap((d) => d.data);
-  const maxAbs = Math.max(...allValues.map((v) => Math.abs(v)), 1);
-  const padding = Math.ceil(maxAbs * 0.1);
+  const numeric = datasets.flatMap((d) =>
+    d.data.filter((v): v is number => v != null)
+  );
+  const maxVal = Math.max(...numeric, 1);
+  const padding = Math.ceil(maxVal * 0.1);
 
   const options: ChartOptions<"line"> = {
     responsive: true,
@@ -108,8 +100,9 @@ export default function ExpenseChart({
         borderWidth: 1,
         callbacks: {
           label: (tooltipItem) => {
-            const value = tooltipItem.raw as number;
-            return `${tooltipItem.dataset.label}: ${value.toLocaleString()}`;
+            const value = tooltipItem.raw as number | null;
+            if (value == null) return `${tooltipItem.dataset.label}: —`;
+            return `${tooltipItem.dataset.label}: ${value.toLocaleString()} plants`;
           },
         },
       },
@@ -122,11 +115,12 @@ export default function ExpenseChart({
     scales: {
       y: {
         type: "linear",
-        suggestedMin: metric === "profit" ? undefined : 0,
-        suggestedMax: maxAbs + padding,
+        suggestedMin: 0,
+        suggestedMax: maxVal + padding,
         grid: { color: "rgba(212,175,55,0.08)" },
         ticks: {
           color: "#c9b896",
+          precision: 0,
           callback: (value) => {
             const num = Number(value);
             return num >= 1000 ? num / 1000 + "K" : num;
@@ -144,7 +138,7 @@ export default function ExpenseChart({
   if (!datasets.length) {
     return (
       <div className="h-full flex items-center justify-center text-gold-muted text-sm">
-        No {metric} data yet
+        No plant count history yet — save counts on crop notes pages
       </div>
     );
   }

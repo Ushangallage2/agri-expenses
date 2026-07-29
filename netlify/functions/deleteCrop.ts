@@ -33,6 +33,15 @@ const baseHandler: Handler = async (event) => {
       /* table may not exist yet */
     }
 
+    try {
+      await pool.query(
+        "DELETE FROM crop_plant_count_history WHERE crop_name = $1",
+        [cropName]
+      );
+    } catch {
+      /* table may not exist yet */
+    }
+
     return {
       statusCode: 200,
       body: JSON.stringify({ success: true, name: cropName }),

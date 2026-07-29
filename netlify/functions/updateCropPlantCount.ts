@@ -2,6 +2,7 @@ import type { Handler } from "@netlify/functions";
 import pool from "./db";
 import jwt from "jsonwebtoken";
 import { ensureCropPlantCountColumn } from "./utils/cropPlantCountDb";
+import { recordPlantCountHistory } from "./utils/cropPlantCountHistoryDb";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 
@@ -41,6 +42,8 @@ export const handler: Handler = async (event) => {
     if (!res.rowCount) {
       return { statusCode: 404, body: JSON.stringify({ error: "Crop not found" }) };
     }
+
+    await recordPlantCountHistory(name, count);
 
     return {
       statusCode: 200,

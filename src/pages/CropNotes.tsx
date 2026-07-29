@@ -6,10 +6,14 @@ import { compressImageFile } from "../utils/imageCompress";
 import SoundToggle from "../components/SoundToggle";
 import ConfirmModal from "../components/ConfirmModal";
 
+type EntryType = "note" | "todo";
+
 type Note = {
   id: number;
   crop_name: string;
   note: string;
+  entry_type?: EntryType;
+  completed?: number;
   created_at: string;
 };
 
@@ -31,6 +35,7 @@ export default function CropNotes() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [images, setImages] = useState<CropImage[]>([]);
   const [text, setText] = useState("");
+  const [entryType, setEntryType] = useState<EntryType>("note");
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -42,6 +47,10 @@ export default function CropNotes() {
   const [savedPlantCount, setSavedPlantCount] = useState(0);
   const [savingPlants, setSavingPlants] = useState(false);
   const [plantMessage, setPlantMessage] = useState<string | null>(null);
+
+  const openTodoCount = notes.filter(
+    (n) => (n.entry_type || "note") === "todo" && !Number(n.completed)
+  ).length;
 
   async function loadPlantCount() {
     const res = await fetch(`${API}/getCrops`, { credentials: "include" });
@@ -100,7 +109,6 @@ export default function CropNotes() {
     try {
       await loadImages();
     } catch (err: any) {
-      // Don't block the page if image API isn't available yet
       console.error(err);
       setError((prev) => prev || "Images unavailable — restart npm run dev if you're local.");
     }
@@ -198,7 +206,11 @@ export default function CropNotes() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ crop, note: text.trim() || "(photo)" }),
+          body: JSON.stringify({
+            crop,
+            note: text.trim() || "(photo)",
+            entryType,
+          }),
         });
         if (!res.ok) throw new Error(await res.text());
         const row = await res.json();
@@ -229,6 +241,25 @@ export default function CropNotes() {
       setError(err.message || "Failed to save");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function toggleTodo(id: number, completed: boolean) {
+    void unlockAudio();
+    play("click");
+    try {
+      const res = await fetch(`${API}/updateCropNote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id, completed }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      play("save");
+      await loadNotes();
+    } catch (err: any) {
+      play("error");
+      setError(err.message || "Failed to update todo");
     }
   }
 
@@ -281,6 +312,22 @@ export default function CropNotes() {
           <h1 className="font-display text-3xl md:text-4xl text-gold glow-text">
             {crop}
           </h1>
+          <div className="mt-3 flex justify-center">
+            <span
+              className={`todo-ripple ${openTodoCount === 0 ? "todo-ripple--quiet" : ""}`}
+              title={
+                openTodoCount === 0
+                  ? "No open todos"
+                  : `${openTodoCount} open todo${openTodoCount === 1 ? "" : "s"}`
+              }
+            >
+              <span className="todo-ripple__icon" aria-hidden>
+                ✓
+              </span>
+              <span className="todo-ripple__count">{openTodoCount}</span>
+              <span>todos</span>
+            </span>
+          </div>
         </div>
         <SoundToggle />
       </header>
@@ -332,7 +379,6 @@ export default function CropNotes() {
         )}
       </section>
 
-      {/* Gallery — always visible at top */}
       <section className="glass-card max-w-3xl mx-auto mb-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
@@ -395,11 +441,35 @@ export default function CropNotes() {
         onSubmit={addNote}
         className="glass-card max-w-3xl mx-auto mb-6 space-y-3"
       >
-        <h2 className="font-display text-xl text-gold">Add note</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-display text-xl text-gold">
+            Add {entryType === "todo" ? "todo" : "note"}
+          </h2>
+          <div className="entry-type-toggle" role="group" aria-label="Entry type">
+            <button
+              type="button"
+              className={entryType === "note" ? "is-active" : ""}
+              onClick={() => setEntryType("note")}
+            >
+              Note
+            </button>
+            <button
+              type="button"
+              className={entryType === "todo" ? "is-active is-todo" : ""}
+              onClick={() => setEntryType("todo")}
+            >
+              Todo
+            </button>
+          </div>
+        </div>
         {error && <p className="text-red-400 text-sm">{error}</p>}
         <textarea
           className="glass-input min-h-[120px] resize-y"
-          placeholder="Field observations, harvest notes, vendor details…"
+          placeholder={
+            entryType === "todo"
+              ? "Task to do for this crop…"
+              : "Field observations, harvest notes, vendor details…"
+          }
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
@@ -434,7 +504,11 @@ export default function CropNotes() {
             className="glass-btn gold-btn ml-auto"
             disabled={loading || (!text.trim() && !pendingImage)}
           >
-            {loading ? "Saving…" : "Save note"}
+            {loading
+              ? "Saving…"
+              : entryType === "todo"
+                ? "Save todo"
+                : "Save note"}
           </button>
         </div>
       </form>
@@ -442,53 +516,81 @@ export default function CropNotes() {
       <div className="max-w-3xl mx-auto space-y-3">
         {notes.length === 0 && (
           <div className="glass-panel text-center text-gold-muted py-10">
-            No notes yet for this crop.
+            No notes or todos yet for this crop.
           </div>
         )}
-        {notes.map((n, i) => (
-          <article
-            key={n.id}
-            className="glass-card relative animate-rise"
-            style={{ animationDelay: `${i * 40}ms` }}
-          >
-            <button
-              type="button"
-              className="absolute top-4 right-4 text-red-400/80 hover:text-red-300"
-              onClick={() => setNoteToDelete(n.id)}
-              aria-label="Delete note"
+        {notes.map((n, i) => {
+          const type: EntryType = n.entry_type === "todo" ? "todo" : "note";
+          const done = type === "todo" && !!Number(n.completed);
+          return (
+            <article
+              key={n.id}
+              className={`glass-card relative animate-rise ${done ? "note-todo-done" : ""}`}
+              style={{ animationDelay: `${i * 40}ms` }}
             >
-              ✕
-            </button>
-            <p className="text-sm text-gold-muted mb-2">
-              {new Date(n.created_at).toLocaleString()}
-            </p>
-            <p className="whitespace-pre-wrap leading-relaxed pr-6">{n.note}</p>
-            {noteImages(n.id).length > 0 && (
-              <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {noteImages(n.id).map((img) => (
+              <button
+                type="button"
+                className="absolute top-4 right-4 text-red-400/80 hover:text-red-300"
+                onClick={() => setNoteToDelete(n.id)}
+                aria-label="Delete entry"
+              >
+                ✕
+              </button>
+              <div className="flex flex-wrap items-center gap-2 mb-2 pr-8">
+                <span
+                  className={`entry-type-badge ${
+                    done
+                      ? "entry-type-badge--done"
+                      : type === "todo"
+                        ? "entry-type-badge--todo"
+                        : "entry-type-badge--note"
+                  }`}
+                >
+                  {done ? "Done" : type === "todo" ? "Todo" : "Note"}
+                </span>
+                <p className="text-sm text-gold-muted">
+                  {new Date(n.created_at).toLocaleString()}
+                </p>
+                {type === "todo" && (
                   <button
-                    key={img.id}
                     type="button"
-                    className="aspect-video rounded-lg overflow-hidden border border-[var(--glass-border)]"
-                    onClick={() => setLightbox(img)}
+                    className="glass-btn text-xs py-1 px-2 ml-auto mr-6"
+                    onClick={() => void toggleTodo(n.id, !done)}
                   >
-                    <img
-                      src={img.image_data}
-                      alt=""
-                      className="w-full h-full object-cover"
-                    />
+                    {done ? "Reopen" : "Mark done"}
                   </button>
-                ))}
+                )}
               </div>
-            )}
-          </article>
-        ))}
+              <p className="note-body whitespace-pre-wrap leading-relaxed pr-6">
+                {n.note}
+              </p>
+              {noteImages(n.id).length > 0 && (
+                <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {noteImages(n.id).map((img) => (
+                    <button
+                      key={img.id}
+                      type="button"
+                      className="aspect-video rounded-lg overflow-hidden border border-[var(--glass-border)]"
+                      onClick={() => setLightbox(img)}
+                    >
+                      <img
+                        src={img.image_data}
+                        alt=""
+                        className="w-full h-full object-cover"
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </article>
+          );
+        })}
       </div>
 
       <ConfirmModal
         open={noteToDelete != null}
-        title="Delete note?"
-        message="This note will be removed permanently."
+        title="Delete entry?"
+        message="This note or todo will be removed permanently."
         confirmLabel="Delete"
         onCancel={() => setNoteToDelete(null)}
         onConfirm={() => {

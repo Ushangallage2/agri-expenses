@@ -2,6 +2,8 @@ import React, { useEffect, useRef,useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import ExpenseChart from "../components/ExpenseChart";
+import PlantCountChart from "../components/PlantCountChart";
+import type { PlantCountPoint } from "../components/PlantCountChart";
 import SoundToggle from "../components/SoundToggle";
 import ConfirmModal from "../components/ConfirmModal";
 import EditRecordModal from "../components/EditRecordModal";
@@ -1015,6 +1017,7 @@ export default function Dashboard() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [amounts, setAmounts] = useState<number[]>([]);
   const [trends, setTrends] = useState<Trend[]>([]);
+  const [plantTrends, setPlantTrends] = useState<PlantCountPoint[]>([]);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [userToDelete, setUserToDelete] = useState<string | null>(null);
   const [editingRecord, setEditingRecord] = useState<EditableExpense | null>(null);
@@ -1023,12 +1026,22 @@ export default function Dashboard() {
   useEffect(() => {
     fetchAll();
     loadTrends();
+    loadPlantTrends();
   }, []);
 
   async function loadTrends() {
     try {
       const data = await safeFetch("/.netlify/functions/getCropsTrend");
       setTrends(data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function loadPlantTrends() {
+    try {
+      const data = await safeFetch("/.netlify/functions/getPlantCountTrend");
+      setPlantTrends(data);
     } catch (err) {
       console.error(err);
     }
@@ -1425,6 +1438,18 @@ const ledger = splitTotals(expenses);
         </h2>
         <div className="w-full" style={{ height: "360px" }}>
           <ExpenseChart trends={trends} metric="profit" />
+        </div>
+      </div>
+
+      <div className="glass-card p-4 mt-4">
+        <h2 className="font-display text-xl text-center text-gold mb-2">
+          Plant count over time
+        </h2>
+        <p className="text-center text-sm text-gold-muted mb-2">
+          One line per crop — updates when you save plant counts
+        </p>
+        <div className="w-full" style={{ height: "360px" }}>
+          <PlantCountChart points={plantTrends} />
         </div>
       </div>
 
