@@ -14,19 +14,30 @@ export type ScheduleStepInput = {
 };
 
 /** Advisor rescue plan — seedable for any crop (doses calibrated for small pepper vines). */
-export const DEFAULT_CYCLE_NAME = "4-week rescue plan";
+export const DEFAULT_CYCLE_NAME = "Pepper base + 4-week rescue";
 
 export const DEFAULT_CYCLE_DESCRIPTION =
-  "Week 1 soil base (per small vine: Dolomite 10–15g, Superphosphate 10g, Urea 5g, SOP 5g, Compost 200g). " +
-  "Week 2 foliar MgSO₄ 150g/10L. Week 3 micros Zn5+Fe5+Borax1 per 10L + sticker. " +
-  "Week 4 disease spray. Long-term: NPK every 6–8 weeks; MgSO₄ every 2–3 weeks; micros monthly; " +
-  "dolomite/gypsum every 2–3 months; disease weekly/biweekly in wet weather. Use Apply week to sync stock.";
+  "BASE: Pepper fertilizer (bag mix) every 6–8 weeks (~50–75 g small / 100–150 g mature). " +
+  "Rescue Week 1: Dolomite 10–15g, Superphosphate 10g, Urea 5g, SOP 5g, Compost 200g per small vine. " +
+  "Week 2 MgSO₄ 150g/10L. Week 3 micros Zn5+Fe5+Borax1/10L. Week 4 disease spray. " +
+  "Use Apply week to sync inventory.";
 
 export const DEFAULT_CYCLE_STEPS: ScheduleStepInput[] = [
   {
+    stepOrder: 0,
+    weekNumber: 0,
+    title: "Base — Pepper fertilizer",
+    instructions:
+      "Usual pepper special-mix BASE feed. Small vine ~50–75 g, mature ~100–150 g. " +
+      "Repeat every 6–8 weeks. Log via Apply week so the 25 kg bag stock stays accurate.",
+    suggestedAmount: 60,
+    unit: "g/vine",
+    intervalDays: 49,
+  },
+  {
     stepOrder: 1,
     weekNumber: 1,
-    title: "Week 1 — Soil base + water-in",
+    title: "Week 1 — Soil rescue mix + water-in",
     instructions:
       "Per small vine: Dolomite 10–15 g, Superphosphate 10 g, Urea 5 g, SOP 5 g, Compost 200 g. " +
       "50 vines ≈ 500–750 g / 500 g / 250 g / 250 g / 10 kg. Water thoroughly. " +

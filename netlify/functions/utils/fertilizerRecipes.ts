@@ -1,6 +1,6 @@
 /**
- * Starter inventory (what you bought) + rescue-plan recipes (advisor doses).
- * Amounts for soil mix are per small vine in grams; foliar is per 10 L tank.
+ * Starter inventory (what you bought) + rescue-plan + pepper base recipes.
+ * Soil amounts are per small vine in grams; foliar is per 10 L tank.
  */
 
 export type StarterItem = {
@@ -11,71 +11,71 @@ export type StarterItem = {
   notes: string;
 };
 
-/** Exact purchase pack from your list + remaining pepper fertilizer. */
+/** Exact purchase from your note + 25 kg pepper fertilizer remaining. */
 export const STARTER_PURCHASE_PACK: StarterItem[] = [
+  {
+    name: "Pepper fertilizer",
+    unit: "kg",
+    stock_qty: 25,
+    unit_price: 0,
+    notes:
+      "BASE feed — usual pepper special mix. Apply every 6–8 weeks. Stock: 25 kg remaining.",
+  },
   {
     name: "Dolomite",
     unit: "kg",
     stock_qty: 3,
     unit_price: 0,
-    notes: "Bought pack — soil calcium/pH",
+    notes: "Bought — 3 kg (soil calcium / pH)",
   },
   {
     name: "Superphosphate",
     unit: "kg",
     stock_qty: 3,
     unit_price: 0,
-    notes: "Bought pack — phosphorus",
+    notes: "Bought — 3 kg",
   },
   {
     name: "Urea",
     unit: "kg",
     stock_qty: 2,
     unit_price: 0,
-    notes: "Bought pack — nitrogen (prefer root drench, avoid heavy dry dose)",
+    notes: "Bought — 2 kg (prefer root drench)",
   },
   {
     name: "Sulfate of Potash (SOP)",
     unit: "kg",
     stock_qty: 2,
     unit_price: 0,
-    notes: "Bought pack — use SOP, avoid MOP",
+    notes: "Bought — 2 kg (use SOP, avoid MOP)",
   },
   {
     name: "NPK 19:19:19",
     unit: "kg",
     stock_qty: 2,
     unit_price: 0,
-    notes: "Bought pack — base ERP/NPK every 6–8 weeks",
+    notes: "Bought — 2 kg",
   },
   {
     name: "Compost",
     unit: "kg",
     stock_qty: 20,
     unit_price: 0,
-    notes: "Bought pack",
+    notes: "Bought — 20 kg",
   },
   {
     name: "Albert solution",
     unit: "kg",
     stock_qty: 2,
     unit_price: 0,
-    notes: "Bought pack — Albert / soluble feed",
+    notes: "Bought — 2 kg",
   },
-  {
-    name: "Pepper fertilizer",
-    unit: "kg",
-    stock_qty: 25,
-    unit_price: 0,
-    notes: "Remaining bag on hand",
-  },
-  // Foliar materials — start at 0 so you can restock when purchased
   {
     name: "MgSO4 (Epsom salt)",
     unit: "kg",
     stock_qty: 0,
     unit_price: 0,
-    notes: "Foliar: 150 g / 10 L. Restock when bought.",
+    notes: "Foliar: 150 g / 10 L — restock when bought",
   },
   {
     name: "ZnSO4",
@@ -101,13 +101,7 @@ export const STARTER_PURCHASE_PACK: StarterItem[] = [
 ];
 
 export type RecipeLine = {
-  /** Must match fertilizers.name */
   fertilizerName: string;
-  /**
-   * `per_plant` → total = gramsPerPlant * vineCount (stored/displayed in g)
-   * `per_tank` → grams for one 10 L spray tank (user can scale tanks)
-   * `fixed` → fixed grams regardless of vines
-   */
   mode: "per_plant" | "per_tank" | "fixed";
   gramsPerPlant?: number;
   gramsPerTank?: number;
@@ -123,16 +117,42 @@ export type RescueWeek = {
   lines: RecipeLine[];
 };
 
-/** 4-week rescue plan from advisor (small vine rates). */
+/**
+ * week 0 = ongoing pepper BASE fertilizer
+ * weeks 1–4 = advisor rescue plan (amendments / foliar / disease)
+ */
 export const RESCUE_WEEKS: RescueWeek[] = [
   {
-    week: 1,
-    title: "Week 1 — Soil base (now)",
+    week: 0,
+    title: "Base — Pepper fertilizer",
     summary:
-      "Per small vine: Dolomite 10–15g, Superphosphate 10g, Urea 5g, SOP 5g, Compost 200g. " +
-      "For 50 vines ≈ 0.5–0.75 / 0.5 / 0.25 / 0.25 / 10 kg. Water in well. " +
-      "Optional: light NPK / Albert / pepper fertilizer if you use them in the base mix.",
+      "Usual pepper special-mix bag feed (your BASE). " +
+      "Small vine ~50–75 g, mature ~100–150 g. Repeat every 6–8 weeks. " +
+      "You have 25 kg on hand — log each round here so stock stays correct.",
     lines: [
+      {
+        fertilizerName: "Pepper fertilizer",
+        mode: "per_plant",
+        gramsPerPlant: 60,
+        tip: "Default 60 g / small vine (range 50–75). Raise toward 100–150 g for mature vines.",
+      },
+    ],
+  },
+  {
+    week: 1,
+    title: "Week 1 — Soil rescue mix (now)",
+    summary:
+      "Per small vine with purchased pack: Dolomite 10–15g, Superphosphate 10g, Urea 5g, SOP 5g, Compost 200g. " +
+      "50 vines ≈ 0.5–0.75 / 0.5 / 0.25 / 0.25 / 10 kg. Water in well. " +
+      "Can combine with Base pepper fertilizer the same week if needed.",
+    lines: [
+      {
+        fertilizerName: "Pepper fertilizer",
+        mode: "per_plant",
+        gramsPerPlant: 60,
+        optional: true,
+        tip: "Optional if you also run Base week — avoid double-dosing the same day unless planned",
+      },
       {
         fertilizerName: "Dolomite",
         mode: "per_plant",
@@ -148,7 +168,7 @@ export const RESCUE_WEEKS: RescueWeek[] = [
         fertilizerName: "Urea",
         mode: "per_plant",
         gramsPerPlant: 5,
-        tip: "Prefer as root drench; do not overdose dry",
+        tip: "Prefer as root drench",
       },
       {
         fertilizerName: "Sulfate of Potash (SOP)",
@@ -165,14 +185,12 @@ export const RESCUE_WEEKS: RescueWeek[] = [
         mode: "per_plant",
         gramsPerPlant: 5,
         optional: true,
-        tip: "Optional in week-1 mix — uncheck if not using",
       },
       {
         fertilizerName: "Albert solution",
         mode: "per_plant",
         gramsPerPlant: 5,
         optional: true,
-        tip: "Optional",
       },
     ],
   },
@@ -180,13 +198,13 @@ export const RESCUE_WEEKS: RescueWeek[] = [
     week: 2,
     title: "Week 2 — Foliar MgSO₄",
     summary:
-      "MgSO₄ (Epsom) 150 g / 10 L (1.5%). Spray early morning or late evening. Targets yellow leaves.",
+      "MgSO₄ (Epsom) 150 g / 10 L (1.5%). Spray early morning or late evening.",
     lines: [
       {
         fertilizerName: "MgSO4 (Epsom salt)",
         mode: "per_tank",
         gramsPerTank: 150,
-        tip: "One 10 L tank. Increase tanks if you spray more volume.",
+        tip: "Per 10 L tank",
       },
     ],
   },
@@ -194,23 +212,15 @@ export const RESCUE_WEEKS: RescueWeek[] = [
     week: 3,
     title: "Week 3 — Foliar micronutrients",
     summary:
-      "Per 10 L: ZnSO₄ 5 g, FeSO₄ 5 g, Borax 1 g + sticker 2–5 mL. Dissolve separately, then mix. AM/PM spray.",
+      "Per 10 L: ZnSO₄ 5 g, FeSO₄ 5 g, Borax 1 g + sticker 2–5 mL.",
     lines: [
-      {
-        fertilizerName: "ZnSO4",
-        mode: "per_tank",
-        gramsPerTank: 5,
-      },
-      {
-        fertilizerName: "FeSO4",
-        mode: "per_tank",
-        gramsPerTank: 5,
-      },
+      { fertilizerName: "ZnSO4", mode: "per_tank", gramsPerTank: 5 },
+      { fertilizerName: "FeSO4", mode: "per_tank", gramsPerTank: 5 },
       {
         fertilizerName: "Borax",
         mode: "per_tank",
         gramsPerTank: 1,
-        tip: "Start low — excess micros can burn leaves",
+        tip: "Start low — excess can burn leaves",
       },
     ],
   },
@@ -218,8 +228,7 @@ export const RESCUE_WEEKS: RescueWeek[] = [
     week: 4,
     title: "Week 4 — Disease control",
     summary:
-      "Neem oil or copper fungicide per label if disease signs. Remove blackened leaves/fruit. Check soil moisture — avoid waterlogging. " +
-      "Log any product you used under inventory (add product first if missing).",
+      "Neem oil or copper fungicide per label. Remove diseased leaves. Check moisture.",
     lines: [],
   },
 ];
@@ -238,7 +247,6 @@ export function lineGrams(
   return line.gramsFixed || 0;
 }
 
-/** Convert usage amount into the fertilizer's stock unit for deduction. */
 export function toStockAmount(
   amount: number,
   usageUnit: string,
@@ -252,9 +260,8 @@ export function toStockAmount(
   if ((u === "ml" || u === "mL".toLowerCase()) && (s === "l" || s === "liter" || s === "litre")) {
     return amount / 1000;
   }
-  if ((u === "l" || u === "liter" || u === "litre") && u !== s && (s === "ml")) {
+  if ((u === "l" || u === "liter" || u === "litre") && (s === "ml")) {
     return amount * 1000;
   }
-  // Fallback: treat as same scale (user responsibility)
   return amount;
 }

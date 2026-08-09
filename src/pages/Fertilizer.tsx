@@ -143,7 +143,7 @@ export default function FertilizerPage() {
 
   // Apply-week wizard
   const [applyCrop, setApplyCrop] = useState(cropParam);
-  const [applyWeek, setApplyWeek] = useState(1);
+  const [applyWeek, setApplyWeek] = useState(0);
   const [vineCount, setVineCount] = useState("50");
   const [tankCount, setTankCount] = useState("1");
   const [applyDate, setApplyDate] = useState(todayISO());
@@ -914,31 +914,25 @@ export default function FertilizerPage() {
                     type="button"
                     className="glass-btn gold-btn"
                     disabled={saving}
-                    onClick={() => void importPurchasePack("add_if_zero")}
+                    onClick={() => void importPurchasePack("set")}
                   >
-                    Import purchase pack
+                    Load purchase pack into stock
                   </button>
                   <button
                     type="button"
                     className="glass-btn"
                     disabled={saving}
-                    onClick={() => {
-                      if (
-                        confirm(
-                          "Overwrite stock numbers with the purchase pack (3+3+2+2+2+20+2+25 kg)?"
-                        )
-                      ) {
-                        void importPurchasePack("set");
-                      }
-                    }}
+                    onClick={() => void importPurchasePack("add_if_zero")}
                   >
-                    Reset stock to purchase list
+                    Fill only empty items
                   </button>
                 </div>
                 <p className="text-xs text-gold-muted">
-                  Pack: Dolomite 3kg · Superphosphate 3kg · Urea 2kg · SOP 2kg ·
-                  NPK 19:19:19 2kg · Compost 20kg · Albert 2kg · Pepper fertilizer
-                  25kg. Foliar products added at 0 kg until you restock.
+                  Pack (your note): Dolomite 3 · Superphosphate 3 · Urea 2 · SOP
+                  2 · NPK 19:19:19 2 · Compost 20 · Albert 2 kg +{" "}
+                  <strong className="text-emerald-300">Pepper fertilizer 25 kg (BASE)</strong>.
+                  Foliar products start at 0 kg until restocked. Use week{" "}
+                  <strong>Base</strong> for the usual pepper mix cycle.
                 </p>
 
                 <form onSubmit={applyRescueWeek} className="space-y-3">
@@ -996,7 +990,7 @@ export default function FertilizerPage() {
                           setApplyWeek(w.week);
                         }}
                       >
-                        Week {w.week}
+                        {w.week === 0 ? "Base" : `Week ${w.week}`}
                       </button>
                     ))}
                   </div>
@@ -1111,7 +1105,9 @@ export default function FertilizerPage() {
                   >
                     {saving
                       ? "Logging…"
-                      : `Log week ${applyWeek} & update inventory`}
+                      : applyWeek === 0
+                        ? "Log base pepper fertilizer & update stock"
+                        : `Log week ${applyWeek} & update inventory`}
                   </button>
                 </form>
               </section>
@@ -1170,9 +1166,9 @@ export default function FertilizerPage() {
                     type="button"
                     className="glass-btn gold-btn text-sm"
                     disabled={saving}
-                    onClick={() => void importPurchasePack("add_if_zero")}
+                    onClick={() => void importPurchasePack("set")}
                   >
-                    Import purchase pack
+                    Load purchase pack into stock
                   </button>
                 </div>
                 <form onSubmit={saveFertilizer} className="space-y-3">

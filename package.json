@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "create-admin": "node scripts/create-admin.mjs",
+    "seed-fertilizer": "node scripts/seed-fertilizer-inventory.mjs",
     "tailwind:init": "tailwindcss init -p",
     "tailwind:build": "tailwindcss -i ./src/index.css -o ./dist/output.css --watch"
   },
