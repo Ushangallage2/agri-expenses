@@ -4,6 +4,11 @@ import { apiFetch } from "../utils/api";
 import SoundToggle from "../components/SoundToggle";
 import ConfirmModal from "../components/ConfirmModal";
 import { play, unlockAudio } from "../utils/sounds";
+import {
+  RESCUE_WEEKS,
+  lineGrams,
+  type RescueWeek,
+} from "../utils/fertilizerRecipes";
 
 type Fertilizer = {
   id: number;
@@ -56,7 +61,9 @@ type PriceRow = {
   recorded_at: string;
 };
 
-type Tab = "inventory" | "schedules" | "usage";
+type Tab = "apply" | "inventory" | "schedules" | "usage";
+
+type CropMeta = { name: string; plant_count: number };
 
 function todayISO() {
   const d = new Date();
@@ -87,10 +94,9 @@ export default function FertilizerPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const cropParam = searchParams.get("crop") || "";
 
-  const [tab, setTab] = useState<Tab>(
-    cropParam ? "schedules" : "inventory"
-  );
+  const [tab, setTab] = useState<Tab>(cropParam ? "apply" : "apply");
   const [crops, setCrops] = useState<string[]>([]);
+  const [cropMeta, setCropMeta] = useState<CropMeta[]>([]);
   const [fertilizers, setFertilizers] = useState<Fertilizer[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
@@ -134,6 +140,15 @@ export default function FertilizerPage() {
   const [confirmDeleteSched, setConfirmDeleteSched] = useState<number | null>(
     null
   );
+
+  // Apply-week wizard
+  const [applyCrop, setApplyCrop] = useState(cropParam);
+  const [applyWeek, setApplyWeek] = useState(1);
+  const [vineCount, setVineCount] = useState("50");
+  const [tankCount, setTankCount] = useState("1");
+  const [applyDate, setApplyDate] = useState(todayISO());
+  const [lineEnabled, setLineEnabled] = useState<Record<string, boolean>>({});
+  const [lineAmounts, setLineAmounts] = useState<Record<string, string>>({});
 
   const cropSchedules = useMemo(
     () =>
@@ -180,7 +195,8 @@ export default function FertilizerPage() {
     if (cropParam) {
       setSelectedCrop(cropParam);
       setUseCrop(cropParam);
-      setTab("schedules");
+      setApplyCrop(cropParam);
+      setTab("apply");
     }
   }, [cropParam]);
 
@@ -189,6 +205,36 @@ export default function FertilizerPage() {
     void loadSchedules(selectedCrop);
     void loadApplications(selectedCrop);
   }, [selectedCrop]);
+
+  const activeRescueWeek: RescueWeek =
+    RESCUE_WEEKS.find((w) => w.week === applyWeek) || RESCUE_WEEKS[0];
+
+  useEffect(() => {
+    const vines = Math.max(0, Math.floor(Number(vineCount) || 0));
+    const tanks = Math.max(0, Number(tankCount) || 0);
+    const refreshed: Record<string, string> = {};
+    const refreshedEn: Record<string, boolean> = {};
+    for (const line of activeRescueWeek.lines) {
+      const key = line.fertilizerName;
+      refreshedEn[key] = line.optional ? false : true;
+      refreshed[key] = String(
+        Number(lineGrams(line, vines, tanks).toFixed(2))
+      );
+    }
+    setLineEnabled(refreshedEn);
+    setLineAmounts(refreshed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyWeek, vineCount, tankCount]);
+
+  useEffect(() => {
+    if (!applyCrop) return;
+    const meta = cropMeta.find(
+      (c) => c.name.toLowerCase() === applyCrop.toLowerCase()
+    );
+    if (meta && meta.plant_count > 0) {
+      setVineCount(String(meta.plant_count));
+    }
+  }, [applyCrop, cropMeta]);
 
   async function loadAll() {
     setLoading(true);
@@ -214,8 +260,112 @@ export default function FertilizerPage() {
       return;
     }
     if (!res.ok) throw new Error(await readError(res));
-    const rows = (await res.json()) as { name: string }[];
+    const rows = (await res.json()) as {
+      name: string;
+      plant_count?: number;
+    }[];
+    setCropMeta(
+      rows.map((r) => ({
+        name: r.name,
+        plant_count: Number(r.plant_count) || 0,
+      }))
+    );
     setCrops(rows.map((r) => r.name).filter(Boolean));
+  }
+
+  async function importPurchasePack(mode: "add_if_zero" | "set") {
+    void unlockAudio();
+    play("click");
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const res = await apiFetch("/seedStarterInventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      if (res.status === 401) {
+        navigate("/login");
+        return;
+      }
+      if (!res.ok) throw new Error(await readError(res));
+      const data = await res.json();
+      setFertilizers(data.fertilizers || []);
+      play("save");
+      setMessage(
+        mode === "set"
+          ? "Purchase pack loaded — stock set to your bought amounts (+ 25 kg pepper fertilizer)."
+          : "Purchase pack synced — missing products added; empty stocks filled."
+      );
+    } catch (e: any) {
+      play("error");
+      setError(e?.message || "Import failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function applyRescueWeek(e: FormEvent) {
+    e.preventDefault();
+    if (!applyCrop) {
+      setError("Select a crop first");
+      return;
+    }
+    void unlockAudio();
+    play("click");
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const lines = activeRescueWeek.lines
+        .filter((line) => lineEnabled[line.fertilizerName])
+        .map((line) => ({
+          fertilizerName: line.fertilizerName,
+          amount: Number(lineAmounts[line.fertilizerName]),
+          unit: "g",
+          notes: `${activeRescueWeek.title} · ${applyCrop}`,
+        }))
+        .filter((l) => l.amount > 0);
+
+      if (!lines.length) {
+        throw new Error(
+          activeRescueWeek.lines.length === 0
+            ? "Week 4 is checklist-only — add disease products to inventory and log under Usage."
+            : "Enable at least one product line with amount > 0"
+        );
+      }
+
+      const res = await apiFetch("/addFertilizerApplicationBatch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cropName: applyCrop,
+          appliedAt: applyDate,
+          weekLabel: activeRescueWeek.title,
+          lines,
+        }),
+      });
+      if (res.status === 401) {
+        navigate("/login");
+        return;
+      }
+      if (!res.ok) throw new Error(await readError(res));
+      const data = await res.json();
+      if (data.fertilizers) setFertilizers(data.fertilizers);
+      await loadApplications(applyCrop);
+      play("save");
+      setMessage(
+        `Logged ${lines.length} product(s) for ${applyCrop}. Inventory updated in real time.`
+      );
+      setSelectedCrop(applyCrop);
+      setUseCrop(applyCrop);
+    } catch (err: any) {
+      play("error");
+      setError(err?.message || "Apply failed");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function loadFertilizers() {
@@ -690,6 +840,7 @@ export default function FertilizerPage() {
   }
 
   const tabs: { id: Tab; label: string }[] = [
+    { id: "apply", label: "Apply week" },
     { id: "inventory", label: "Inventory" },
     { id: "schedules", label: "Schedules" },
     { id: "usage", label: "Log usage" },
@@ -704,7 +855,7 @@ export default function FertilizerPage() {
             Fertilizer
           </h1>
           <p className="text-gold-muted text-sm mt-2 max-w-xl">
-            Inventory, prices, crop timetables, and usage logging — works for
+            Purchase pack → apply weekly doses → stock updates live. Works for
             any crop. Logging usage deducts stock.
           </p>
         </div>
@@ -743,6 +894,270 @@ export default function FertilizerPage() {
         <p className="text-gold-muted">Loading…</p>
       ) : (
         <>
+          {tab === "apply" && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <section className="glass-card gold-sheen space-y-4">
+                <div>
+                  <p className="eyebrow">Rescue plan</p>
+                  <h2 className="font-display text-xl text-gold">
+                    Apply week & sync stock
+                  </h2>
+                  <p className="text-sm text-gold-muted mt-2 leading-relaxed">
+                    Enter vine count (or use crop plant count). We calculate grams
+                    from the advisor recipe; confirm and log — inventory deducts
+                    automatically (g → kg).
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="glass-btn gold-btn"
+                    disabled={saving}
+                    onClick={() => void importPurchasePack("add_if_zero")}
+                  >
+                    Import purchase pack
+                  </button>
+                  <button
+                    type="button"
+                    className="glass-btn"
+                    disabled={saving}
+                    onClick={() => {
+                      if (
+                        confirm(
+                          "Overwrite stock numbers with the purchase pack (3+3+2+2+2+20+2+25 kg)?"
+                        )
+                      ) {
+                        void importPurchasePack("set");
+                      }
+                    }}
+                  >
+                    Reset stock to purchase list
+                  </button>
+                </div>
+                <p className="text-xs text-gold-muted">
+                  Pack: Dolomite 3kg · Superphosphate 3kg · Urea 2kg · SOP 2kg ·
+                  NPK 19:19:19 2kg · Compost 20kg · Albert 2kg · Pepper fertilizer
+                  25kg. Foliar products added at 0 kg until you restock.
+                </p>
+
+                <form onSubmit={applyRescueWeek} className="space-y-3">
+                  <label className="block">
+                    <span className="eyebrow mb-1 block">Crop</span>
+                    <select
+                      className="glass-input"
+                      value={applyCrop}
+                      onChange={(e) => setApplyCrop(e.target.value)}
+                      required
+                    >
+                      <option value="">Select crop…</option>
+                      {crops.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block">
+                      <span className="eyebrow mb-1 block">Vines (plants)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        className="glass-input"
+                        value={vineCount}
+                        onChange={(e) => setVineCount(e.target.value)}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="eyebrow mb-1 block">Date</span>
+                      <input
+                        type="date"
+                        className="glass-input date-input"
+                        value={applyDate}
+                        onChange={(e) => setApplyDate(e.target.value)}
+                        required
+                      />
+                    </label>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {RESCUE_WEEKS.map((w) => (
+                      <button
+                        key={w.week}
+                        type="button"
+                        className={`glass-btn ${
+                          applyWeek === w.week ? "gold-btn" : ""
+                        }`}
+                        onClick={() => {
+                          play("click");
+                          setApplyWeek(w.week);
+                        }}
+                      >
+                        Week {w.week}
+                      </button>
+                    ))}
+                  </div>
+
+                  {(applyWeek === 2 || applyWeek === 3) && (
+                    <label className="block">
+                      <span className="eyebrow mb-1 block">
+                        10 L spray tanks
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        className="glass-input"
+                        value={tankCount}
+                        onChange={(e) => setTankCount(e.target.value)}
+                      />
+                    </label>
+                  )}
+
+                  <div className="rounded-xl border border-[var(--glass-border)] bg-black/20 p-3">
+                    <p className="font-medium text-gold text-sm">
+                      {activeRescueWeek.title}
+                    </p>
+                    <p className="text-xs text-gold-muted mt-1 leading-relaxed">
+                      {activeRescueWeek.summary}
+                    </p>
+                  </div>
+
+                  {activeRescueWeek.lines.length === 0 ? (
+                    <p className="text-sm text-gold-muted">
+                      No stock lines for this week — use as a checklist, then log
+                      disease products under <strong>Log usage</strong>.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {activeRescueWeek.lines.map((line) => {
+                        const fert = fertilizers.find(
+                          (f) => f.name === line.fertilizerName
+                        );
+                        const grams = Number(
+                          lineAmounts[line.fertilizerName] || 0
+                        );
+                        const needKg = grams / 1000;
+                        const short =
+                          fert != null && needKg > fert.stock_qty + 1e-9;
+                        return (
+                          <div
+                            key={line.fertilizerName}
+                            className={`rounded-xl border px-3 py-2 ${
+                              short
+                                ? "border-red-400/40 bg-red-950/20"
+                                : "border-[var(--glass-border)] bg-black/15"
+                            }`}
+                          >
+                            <label className="flex flex-wrap items-center gap-3">
+                              <input
+                                type="checkbox"
+                                className="accent-[#d4af37]"
+                                checked={Boolean(
+                                  lineEnabled[line.fertilizerName]
+                                )}
+                                onChange={(e) =>
+                                  setLineEnabled((prev) => ({
+                                    ...prev,
+                                    [line.fertilizerName]: e.target.checked,
+                                  }))
+                                }
+                              />
+                              <span className="flex-1 min-w-[120px] text-sm font-medium">
+                                {line.fertilizerName}
+                                {line.optional ? (
+                                  <span className="text-gold-muted"> (optional)</span>
+                                ) : null}
+                              </span>
+                              <input
+                                type="number"
+                                min={0}
+                                step="any"
+                                className="glass-input w-28"
+                                disabled={!lineEnabled[line.fertilizerName]}
+                                value={lineAmounts[line.fertilizerName] || ""}
+                                onChange={(e) =>
+                                  setLineAmounts((prev) => ({
+                                    ...prev,
+                                    [line.fertilizerName]: e.target.value,
+                                  }))
+                                }
+                              />
+                              <span className="text-xs text-gold-muted w-8">g</span>
+                            </label>
+                            <p className="text-[11px] text-gold-muted mt-1 pl-7">
+                              ≈ {needKg.toFixed(3)} kg
+                              {fert
+                                ? ` · stock ${fert.stock_qty} ${fert.unit}`
+                                : " · not in inventory — import pack first"}
+                              {line.tip ? ` · ${line.tip}` : ""}
+                              {short ? " · SHORT STOCK" : ""}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    className={`glass-btn gold-btn w-full ${
+                      saving || !applyCrop ? "opacity-50" : ""
+                    }`}
+                    disabled={saving || !applyCrop || activeRescueWeek.lines.length === 0}
+                  >
+                    {saving
+                      ? "Logging…"
+                      : `Log week ${applyWeek} & update inventory`}
+                  </button>
+                </form>
+              </section>
+
+              <section className="glass-card space-y-4">
+                <div>
+                  <p className="eyebrow">Live stock</p>
+                  <h2 className="font-display text-xl text-gold">
+                    After each apply
+                  </h2>
+                </div>
+                {fertilizers.length === 0 ? (
+                  <p className="text-gold-muted text-sm">
+                    Import your purchase pack to start tracking.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-[60vh] overflow-y-auto custom-scroll">
+                    {fertilizers.map((f) => (
+                      <div
+                        key={f.id}
+                        className="flex justify-between gap-3 text-sm border-b border-white/10 py-2"
+                      >
+                        <span className="text-gold truncate">{f.name}</span>
+                        <span
+                          className={
+                            f.stock_qty <= 0
+                              ? "text-red-300"
+                              : "text-emerald-300"
+                          }
+                        >
+                          {f.stock_qty} {f.unit}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-gold-muted leading-relaxed">
+                  Long-term: NPK every 6–8 weeks · MgSO₄ every 2–3 weeks · micros
+                  monthly · dolomite every 2–3 months · disease spray as needed.
+                  Seed the schedule template under <strong>Schedules</strong> for
+                  any crop.
+                </p>
+              </section>
+            </div>
+          )}
+
           {tab === "inventory" && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <section className="glass-card gold-sheen">
@@ -750,6 +1165,16 @@ export default function FertilizerPage() {
                 <h2 className="font-display text-xl text-gold mb-4">
                   {editId ? "Edit fertilizer" : "Add fertilizer"}
                 </h2>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <button
+                    type="button"
+                    className="glass-btn gold-btn text-sm"
+                    disabled={saving}
+                    onClick={() => void importPurchasePack("add_if_zero")}
+                  >
+                    Import purchase pack
+                  </button>
+                </div>
                 <form onSubmit={saveFertilizer} className="space-y-3">
                   <label className="block">
                     <span className="eyebrow mb-1 block">Name</span>
@@ -1001,7 +1426,7 @@ export default function FertilizerPage() {
                     disabled={!selectedCrop || saving}
                     onClick={() => void seedPepperTemplate()}
                   >
-                    Use pepper cycle template
+                    Use 4-week rescue template
                   </button>
                   <button
                     type="button"
@@ -1022,9 +1447,9 @@ export default function FertilizerPage() {
                 </div>
 
                 <p className="text-xs text-gold-muted leading-relaxed">
-                  The pepper cycle is a seedable 4-week template (base mix →
-                  MgSO₄ → micros → disease spray). Attach it to any crop, then
-                  edit amounts and instructions.
+                  Seeds the advisor rescue plan (soil base → MgSO₄ → micros →
+                  disease). For day-to-day stock sync, use the{" "}
+                  <strong>Apply week</strong> tab.
                 </p>
 
                 {selectedCrop && cropSchedules.length > 0 && (

@@ -13,53 +13,57 @@ export type ScheduleStepInput = {
   intervalDays?: number | null;
 };
 
-/** Pepper-style 4-week cycle — seedable template for any crop. */
-export const DEFAULT_CYCLE_NAME = "4-week nutrient cycle";
+/** Advisor rescue plan — seedable for any crop (doses calibrated for small pepper vines). */
+export const DEFAULT_CYCLE_NAME = "4-week rescue plan";
 
 export const DEFAULT_CYCLE_DESCRIPTION =
-  "Universal 4-week cycle inspired by pepper feeding. Customize amounts per crop. " +
-  "Repeat notes: NPK every 6–8 weeks; MgSO₄ every 2–3 weeks; micronutrients monthly; " +
-  "calcium every 2–3 months; disease spray weekly or biweekly.";
+  "Week 1 soil base (per small vine: Dolomite 10–15g, Superphosphate 10g, Urea 5g, SOP 5g, Compost 200g). " +
+  "Week 2 foliar MgSO₄ 150g/10L. Week 3 micros Zn5+Fe5+Borax1 per 10L + sticker. " +
+  "Week 4 disease spray. Long-term: NPK every 6–8 weeks; MgSO₄ every 2–3 weeks; micros monthly; " +
+  "dolomite/gypsum every 2–3 months; disease weekly/biweekly in wet weather. Use Apply week to sync stock.";
 
 export const DEFAULT_CYCLE_STEPS: ScheduleStepInput[] = [
   {
     stepOrder: 1,
     weekNumber: 1,
-    title: "Base mix + water-in",
+    title: "Week 1 — Soil base + water-in",
     instructions:
-      "Soil base mix: dolomite + superphosphate + urea + SOP + NPK + compost + Albert. " +
-      "Suggested rate ~150–200g per mature plant / 50–75g per small plant. Water thoroughly after.",
-    suggestedAmount: 175,
-    unit: "g",
-    intervalDays: 28,
+      "Per small vine: Dolomite 10–15 g, Superphosphate 10 g, Urea 5 g, SOP 5 g, Compost 200 g. " +
+      "50 vines ≈ 500–750 g / 500 g / 250 g / 250 g / 10 kg. Water thoroughly. " +
+      "Optional NPK/Albert. Prefer urea as root drench; avoid MOP (use SOP).",
+    suggestedAmount: 232.5,
+    unit: "g/vine",
+    intervalDays: 42,
   },
   {
     stepOrder: 2,
     weekNumber: 2,
-    title: "Foliar MgSO₄",
-    instructions: "Foliar spray magnesium sulfate (MgSO₄) at 15g per litre of water.",
-    suggestedAmount: 15,
-    unit: "g/L",
+    title: "Week 2 — Foliar MgSO₄",
+    instructions:
+      "MgSO₄ (Epsom) 150 g / 10 L (1.5%). Spray early morning or late evening. Yellow-leaf / chlorophyll boost.",
+    suggestedAmount: 150,
+    unit: "g/10L",
     intervalDays: 14,
   },
   {
     stepOrder: 3,
     weekNumber: 3,
-    title: "Micronutrient foliar",
+    title: "Week 3 — Foliar micronutrients",
     instructions:
-      "Foliar micronutrients: zinc (Zn), boron (B), and iron (Fe) at label/recommended doses. " +
-      "Typically monthly in the broader cycle.",
-    unit: "ml/L",
+      "Per 10 L: ZnSO₄ 5 g, FeSO₄ 5 g, Borax 1 g + Teepol/Sandovit 2–5 mL. " +
+      "Dissolve separately, then combine. Spray AM/PM only — start low to avoid leaf burn.",
+    suggestedAmount: 11,
+    unit: "g/10L",
     intervalDays: 28,
   },
   {
     stepOrder: 4,
     weekNumber: 4,
-    title: "Disease spray",
+    title: "Week 4 — Disease control",
     instructions:
-      "Preventive disease spray (neem and/or copper). Repeat weekly or biweekly as needed " +
-      "outside the fixed week slot.",
-    unit: "ml/L",
+      "Neem oil or copper fungicide per label if disease signs. Remove blackened leaves/fruit. " +
+      "Check moisture — avoid waterlogging. Repeat weekly/biweekly in rainy periods.",
+    unit: "label",
     intervalDays: 7,
   },
 ];
@@ -325,4 +329,69 @@ export async function recordPriceHistory(
      VALUES ($1, $2, NOW())`,
     [fertilizerId, price]
   );
+}
+
+/**
+ * Upsert the purchase pack into inventory.
+ * mode=replace_stock: set stock to pack qty
+ * mode=add_stock: add pack qty onto existing (default for re-import safety: set if new, skip stock if exists unless force)
+ */
+export async function seedStarterInventory(opts?: {
+  mode?: "set" | "add_if_zero";
+}) {
+  const { STARTER_PURCHASE_PACK } = await import("./fertilizerRecipes");
+  await ensureFertilizerTables();
+  const mode = opts?.mode || "add_if_zero";
+  const results: {
+    name: string;
+    id: number;
+    stock_qty: number;
+    created: boolean;
+  }[] = [];
+
+  for (const item of STARTER_PURCHASE_PACK) {
+    const existing = await pool.query(
+      `SELECT id, stock_qty FROM fertilizers WHERE name = $1`,
+      [item.name]
+    );
+
+    if (existing.rows[0]) {
+      const id = Number(existing.rows[0].id);
+      const current = toNum(existing.rows[0].stock_qty);
+      let next = current;
+      if (mode === "set") next = item.stock_qty;
+      else if (mode === "add_if_zero" && current <= 0 && item.stock_qty > 0) {
+        next = item.stock_qty;
+      }
+
+      if (next !== current) {
+        await pool.query(`UPDATE fertilizers SET stock_qty = $1, unit = $2, notes = $3 WHERE id = $4`, [
+          next,
+          item.unit,
+          item.notes,
+          id,
+        ]);
+      }
+      results.push({ name: item.name, id, stock_qty: next, created: false });
+    } else {
+      const created = await pool.query(
+        `INSERT INTO fertilizers (name, unit, stock_qty, unit_price, notes)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, stock_qty`,
+        [item.name, item.unit, item.stock_qty, item.unit_price, item.notes]
+      );
+      const id = Number(created.rows[0].id);
+      if (item.unit_price > 0) {
+        await recordPriceHistory(id, item.unit_price);
+      }
+      results.push({
+        name: item.name,
+        id,
+        stock_qty: toNum(created.rows[0].stock_qty),
+        created: true,
+      });
+    }
+  }
+
+  return results;
 }

@@ -2,6 +2,7 @@ import type { Handler } from "@netlify/functions";
 import pool from "./db";
 import { requireAuth } from "../../src/utils/requireAuth";
 import { ensureFertilizerTables, toNum } from "./utils/fertilizerDb";
+import { toStockAmount } from "./utils/fertilizerRecipes";
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -21,7 +22,7 @@ const baseHandler: Handler = async (event) => {
     await ensureFertilizerTables();
 
     const existing = await pool.query(
-      `SELECT id, fertilizer_id, amount FROM fertilizer_applications WHERE id = $1`,
+      `SELECT id, fertilizer_id, amount, unit FROM fertilizer_applications WHERE id = $1`,
       [appId]
     );
     if (!existing.rows[0]) {
@@ -33,10 +34,17 @@ const baseHandler: Handler = async (event) => {
 
     const fertilizerId = Number(existing.rows[0].fertilizer_id);
     const amount = toNum(existing.rows[0].amount);
+    const usageUnit = String(existing.rows[0].unit || "g");
+    const fert = await pool.query(
+      `SELECT unit FROM fertilizers WHERE id = $1`,
+      [fertilizerId]
+    );
+    const stockUnit = String(fert.rows[0]?.unit || "kg");
+    const restore = toStockAmount(amount, usageUnit, stockUnit);
 
     await pool.query(
       `UPDATE fertilizers SET stock_qty = stock_qty + $1 WHERE id = $2`,
-      [amount, fertilizerId]
+      [restore, fertilizerId]
     );
     await pool.query(`DELETE FROM fertilizer_applications WHERE id = $1`, [
       appId,

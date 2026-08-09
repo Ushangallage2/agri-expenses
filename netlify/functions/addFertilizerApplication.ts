@@ -6,6 +6,7 @@ import {
   mapApplication,
   toNum,
 } from "./utils/fertilizerDb";
+import { toStockAmount } from "./utils/fertilizerRecipes";
 
 const baseHandler: Handler = async (event, context: HandlerContext) => {
   if (event.httpMethod !== "POST") {
@@ -79,12 +80,13 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
     const stock = toNum(fert.rows[0].stock_qty);
     const fertUnit = String(fert.rows[0].unit || "kg");
     const useUnit = unit || fertUnit;
+    const deduct = toStockAmount(amount, useUnit, fertUnit);
 
-    if (amount > stock) {
+    if (deduct > stock + 1e-9) {
       return {
         statusCode: 409,
         body: JSON.stringify({
-          error: `Insufficient stock: have ${stock} ${fertUnit}, need ${amount} ${useUnit}`,
+          error: `Insufficient stock: have ${stock} ${fertUnit}, need ${deduct.toFixed(3)} ${fertUnit} (${amount} ${useUnit})`,
           stock,
           unit: fertUnit,
         }),
@@ -96,14 +98,14 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
       `UPDATE fertilizers
        SET stock_qty = stock_qty - $1
        WHERE id = $2 AND stock_qty >= $3`,
-      [amount, fertilizerId, amount]
+      [deduct, fertilizerId, deduct]
     );
 
     if (!dec.rowCount) {
       return {
         statusCode: 409,
         body: JSON.stringify({
-          error: `Insufficient stock: have ${stock} ${fertUnit}, need ${amount} ${useUnit}`,
+          error: `Insufficient stock: have ${stock} ${fertUnit}, need ${deduct.toFixed(3)} ${fertUnit} (${amount} ${useUnit})`,
           stock,
           unit: fertUnit,
         }),
