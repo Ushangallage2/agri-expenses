@@ -333,6 +333,28 @@ export default function CropNotes() {
       </header>
 
       <section className="glass-card max-w-3xl mx-auto mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="eyebrow">Nutrition</p>
+            <h2 className="font-display text-xl text-gold">Fertilizer</h2>
+            <p className="text-sm text-gold-muted mt-1">
+              Inventory, timetable, and usage for this crop.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="glass-btn gold-btn"
+            onClick={() => {
+              play("click");
+              navigate(`/fertilizer?crop=${encodeURIComponent(crop)}`);
+            }}
+          >
+            Open fertilizer →
+          </button>
+        </div>
+      </section>
+
+      <section className="glass-card max-w-3xl mx-auto mb-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="eyebrow">Inventory</p>

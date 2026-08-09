@@ -5,6 +5,7 @@ import AddExpense from "./pages/AddExpense";
 import CropNotes from "./pages/CropNotes";
 import ActivityLog from "./pages/ActivityLog";
 import EmailReports from "./pages/EmailReports";
+import Fertilizer from "./pages/Fertilizer";
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/crops/:cropName/notes" element={<CropNotes />} />
         <Route path="/activity" element={<ActivityLog />} />
         <Route path="/email-reports" element={<EmailReports />} />
+        <Route path="/fertilizer" element={<Fertilizer />} />
         <Route path="*" element={<Navigate to="/login" />} />
       </Routes>
     </BrowserRouter>
