@@ -11,6 +11,7 @@ import {
   completeFertilizerDueTodo,
   noteFertilizerDueProgress,
 } from "./utils/fertilizerDueTodos";
+import { invalidate } from "./utils/memoryCache";
 
 type LineIn = {
   fertilizerId?: number;
@@ -301,6 +302,11 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
       };
     }
 
+    invalidate("fertilizers:");
+    invalidate("fertilizerRates:");
+    invalidate("expenses:");
+    invalidate("cropTodos:");
+    invalidate("cropNotes:");
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },

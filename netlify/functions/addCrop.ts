@@ -1,6 +1,7 @@
 import { Handler } from "@netlify/functions";
 import pool from "./db";
 import { requireAdmin } from "../../src/utils/requireAuth";
+import { invalidate } from "./utils/memoryCache";
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -23,6 +24,7 @@ const baseHandler: Handler = async (event) => {
       [name.trim()]
     );
 
+    invalidate("crops:");
     return {
       statusCode: 200,
       body: JSON.stringify(res.rows[0]),

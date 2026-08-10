@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { requireAdmin } from "../../src/utils/requireAuth";
 import { ensureUsersRoleColumn } from "./utils/usersDb";
 import { normalizeRole } from "../../src/utils/roles";
+import { invalidate } from "./utils/memoryCache";
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -31,6 +32,7 @@ const baseHandler: Handler = async (event) => {
       [username, hash, userRole]
     );
 
+    invalidate("users:");
     return {
       statusCode: 200,
       body: JSON.stringify(res.rows[0]),

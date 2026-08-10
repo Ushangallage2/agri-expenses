@@ -1,6 +1,7 @@
 import { Handler } from "@netlify/functions";
 import pool from "./db";
 import { isErrorResponse, requireAdminUser } from "./utils/session";
+import { invalidate } from "./utils/memoryCache";
 
 export const handler: Handler = async (event) => {
   try {
@@ -13,6 +14,7 @@ export const handler: Handler = async (event) => {
     console.log("Deleted record:", id);
     await pool.query("DELETE FROM expenses WHERE id=$1", [id]);
 
+    invalidate("expenses:");
     return { statusCode: 200, body: JSON.stringify({ success: true, message: "Deleted" }) };
 
   } catch (err) {

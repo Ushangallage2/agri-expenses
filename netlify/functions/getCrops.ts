@@ -2,8 +2,10 @@ import { Handler } from "@netlify/functions";
 import pool from "./db";
 import jwt from "jsonwebtoken";
 import { ensureCropPlantCountColumn } from "./utils/cropPlantCountDb";
+import { cached } from "./utils/memoryCache";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
+const TTL_MS = 30_000;
 
 export const handler: Handler = async (event) => {
   try {
@@ -12,21 +14,25 @@ export const handler: Handler = async (event) => {
 
     jwt.verify(token, JWT_SECRET);
 
-    await ensureCropPlantCountColumn();
+    const body = await cached("crops:list", TTL_MS, async () => {
+      await ensureCropPlantCountColumn();
 
-    const res = await pool.query(
-      `SELECT id, name, plant_count FROM crops ORDER BY name ASC`
-    );
+      const res = await pool.query(
+        `SELECT id, name, plant_count FROM crops ORDER BY name ASC`
+      );
 
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
+      return JSON.stringify(
         res.rows.map((r: any) => ({
           ...r,
           plant_count: Number(r.plant_count) || 0,
         }))
-      ),
+      );
+    });
+
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/json" },
+      body,
     };
   } catch (err) {
     console.error(err);

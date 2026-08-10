@@ -5,23 +5,30 @@ import {
   ensureFertilizerTables,
   mapFertilizer,
 } from "./utils/fertilizerDb";
+import { cached } from "./utils/memoryCache";
+
+const TTL_MS = 30_000;
 
 const baseHandler: Handler = async () => {
   try {
-    await ensureFertilizerTables();
+    const body = await cached("fertilizers:list", TTL_MS, async () => {
+      await ensureFertilizerTables();
 
-    const res = await pool.query(
-      `SELECT id, name, unit, stock_qty, unit_price, notes, created_at
-       FROM fertilizers
-       ORDER BY name ASC`
-    );
+      const res = await pool.query(
+        `SELECT id, name, unit, stock_qty, unit_price, notes, created_at
+         FROM fertilizers
+         ORDER BY name ASC`
+      );
+
+      return JSON.stringify(
+        res.rows.map((r) => mapFertilizer(r as Record<string, unknown>))
+      );
+    });
 
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        res.rows.map((r) => mapFertilizer(r as Record<string, unknown>))
-      ),
+      body,
     };
   } catch (err) {
     console.error(err);

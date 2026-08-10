@@ -2,6 +2,7 @@ import type { Handler } from "@netlify/functions";
 import pool from "./db";
 import { requireAdmin } from "../../src/utils/requireAuth";
 import { ensureCropNotesTable } from "./utils/cropNotesDb";
+import { invalidate } from "./utils/memoryCache";
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -28,6 +29,8 @@ const baseHandler: Handler = async (event) => {
       return { statusCode: 404, body: "Todo not found" };
     }
 
+    invalidate("cropNotes:");
+    invalidate("cropTodos:");
     return {
       statusCode: 200,
       body: JSON.stringify({ success: true, id: noteId, completed: done }),

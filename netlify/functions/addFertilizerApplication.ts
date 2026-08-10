@@ -6,6 +6,7 @@ import {
   mapApplication,
   toNum,
 } from "./utils/fertilizerDb";
+import { invalidate } from "./utils/memoryCache";
 import { toStockAmount } from "./utils/fertilizerRecipes";
 
 const baseHandler: Handler = async (event, context: HandlerContext) => {
@@ -148,6 +149,9 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
       [fertilizerId]
     );
 
+    invalidate("fertilizers:");
+    invalidate("cropTodos:");
+    invalidate("cropNotes:");
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },

@@ -3,8 +3,10 @@ import pool from "./db";
 import jwt from "jsonwebtoken";
 import { ensureCropNotesTable } from "./utils/cropNotesDb";
 import { syncFertilizerDueTodos } from "./utils/fertilizerDueTodos";
+import { cached } from "./utils/memoryCache";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
+const TTL_MS = 30_000;
 
 export const handler: Handler = async (event) => {
   try {
@@ -12,30 +14,34 @@ export const handler: Handler = async (event) => {
     if (!token) return { statusCode: 401, body: "Unauthorized" };
     jwt.verify(token, JWT_SECRET);
 
-    await ensureCropNotesTable();
+    const body = await cached("cropTodos:counts", TTL_MS, async () => {
+      await ensureCropNotesTable();
 
-    try {
-      await syncFertilizerDueTodos();
-    } catch (syncErr) {
-      console.error("fertilizer due sync:", syncErr);
-    }
+      try {
+        await syncFertilizerDueTodos();
+      } catch (syncErr) {
+        console.error("fertilizer due sync:", syncErr);
+      }
 
-    const res = await pool.query(
-      `SELECT crop_name, COUNT(*) AS open_todos
-       FROM crop_notes
-       WHERE entry_type = 'todo' AND completed = 0
-       GROUP BY crop_name`
-    );
+      const res = await pool.query(
+        `SELECT crop_name, COUNT(*) AS open_todos
+         FROM crop_notes
+         WHERE entry_type = 'todo' AND completed = 0
+         GROUP BY crop_name`
+      );
+
+      return JSON.stringify(
+        res.rows.map((r: any) => ({
+          crop_name: r.crop_name as string,
+          open_todos: Number(r.open_todos) || 0,
+        }))
+      );
+    });
 
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        res.rows.map((r: { crop_name: string; open_todos: number }) => ({
-          crop_name: r.crop_name,
-          open_todos: Number(r.open_todos) || 0,
-        }))
-      ),
+      body,
     };
   } catch (err) {
     console.error(err);

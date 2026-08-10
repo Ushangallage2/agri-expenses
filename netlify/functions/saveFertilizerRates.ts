@@ -1,6 +1,7 @@
 import type { Handler } from "@netlify/functions";
 import { requireAdmin } from "../../src/utils/requireAuth";
 import { saveFertilizerRateConfig } from "./utils/fertilizerRateConfigDb";
+import { invalidate } from "./utils/memoryCache";
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -10,6 +11,10 @@ const baseHandler: Handler = async (event) => {
   try {
     const body = JSON.parse(event.body || "{}");
     const config = await saveFertilizerRateConfig(body.config ?? body);
+    invalidate("fertilizerRates:");
+    invalidate("fertilizers:");
+    invalidate("cropTodos:");
+    invalidate("cropNotes:");
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },

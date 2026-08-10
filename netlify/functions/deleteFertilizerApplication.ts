@@ -2,6 +2,7 @@ import type { Handler } from "@netlify/functions";
 import pool from "./db";
 import { requireAdmin } from "../../src/utils/requireAuth";
 import { ensureFertilizerTables, toNum } from "./utils/fertilizerDb";
+import { invalidate } from "./utils/memoryCache";
 import { toStockAmount } from "./utils/fertilizerRecipes";
 
 const baseHandler: Handler = async (event) => {
@@ -55,6 +56,9 @@ const baseHandler: Handler = async (event) => {
       [fertilizerId]
     );
 
+    invalidate("fertilizers:");
+    invalidate("cropTodos:");
+    invalidate("cropNotes:");
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },

@@ -7,6 +7,7 @@ import {
   recordPriceHistory,
   toNum,
 } from "./utils/fertilizerDb";
+import { invalidate } from "./utils/memoryCache";
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -51,6 +52,7 @@ const baseHandler: Handler = async (event) => {
       await recordPriceHistory(row.id, unitPrice);
     }
 
+    invalidate("fertilizers:");
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },

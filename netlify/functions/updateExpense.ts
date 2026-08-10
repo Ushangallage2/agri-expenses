@@ -5,6 +5,7 @@ import {
   normalizeReceipt,
 } from "./utils/expenseReceiptsDb";
 import { isErrorResponse, requireAdminUser } from "./utils/session";
+import { invalidate } from "./utils/memoryCache";
 
 export const handler: Handler = async (event) => {
   try {
@@ -84,6 +85,7 @@ export const handler: Handler = async (event) => {
       );
     }
 
+    invalidate("expenses:");
     return {
       statusCode: 200,
       body: JSON.stringify({ success: true, message: "Updated" }),

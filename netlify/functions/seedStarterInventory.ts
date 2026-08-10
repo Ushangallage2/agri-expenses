@@ -6,6 +6,7 @@ import {
   seedStarterInventory,
 } from "./utils/fertilizerDb";
 import pool from "./db";
+import { invalidate } from "./utils/memoryCache";
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -24,6 +25,7 @@ const baseHandler: Handler = async (event) => {
        FROM fertilizers ORDER BY name ASC`
     );
 
+    invalidate("fertilizers:");
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },

@@ -1,6 +1,7 @@
 import type { Handler } from "@netlify/functions";
 import pool from "./db";
 import { requireAdmin } from "../../src/utils/requireAuth";
+import { invalidate } from "./utils/memoryCache";
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -17,6 +18,8 @@ const baseHandler: Handler = async (event) => {
     } catch {
       /* table may not exist yet */
     }
+    invalidate("cropNotes:");
+    invalidate("cropTodos:");
     return {
       statusCode: 200,
       body: JSON.stringify({ success: true }),

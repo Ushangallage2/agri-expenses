@@ -1,6 +1,7 @@
 import type { Handler } from "@netlify/functions";
 import pool from "./db";
 import { isErrorResponse, requireAdminUser } from "./utils/session";
+import { invalidate } from "./utils/memoryCache";
 
 function toMysqlDateTime(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -75,6 +76,7 @@ export const handler: Handler = async (event) => {
       id,
     ]);
 
+    invalidate("expenses:");
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },

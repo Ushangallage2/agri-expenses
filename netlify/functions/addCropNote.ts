@@ -5,6 +5,7 @@ import {
   ensureCropNotesTable,
   normalizeEntryType,
 } from "./utils/cropNotesDb";
+import { invalidate } from "./utils/memoryCache";
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -29,6 +30,8 @@ const baseHandler: Handler = async (event) => {
     );
 
     const row = res.rows[0];
+    invalidate("cropNotes:");
+    invalidate("cropTodos:");
     return {
       statusCode: 200,
       body: JSON.stringify({

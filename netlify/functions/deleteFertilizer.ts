@@ -2,6 +2,7 @@ import type { Handler } from "@netlify/functions";
 import pool from "./db";
 import { requireAdmin } from "../../src/utils/requireAuth";
 import { ensureFertilizerTables } from "./utils/fertilizerDb";
+import { invalidate } from "./utils/memoryCache";
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -54,6 +55,7 @@ const baseHandler: Handler = async (event) => {
       };
     }
 
+    invalidate("fertilizers:");
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },

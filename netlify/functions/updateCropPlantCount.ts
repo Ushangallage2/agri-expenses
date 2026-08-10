@@ -3,6 +3,7 @@ import pool from "./db";
 import { ensureCropPlantCountColumn } from "./utils/cropPlantCountDb";
 import { recordPlantCountHistory } from "./utils/cropPlantCountHistoryDb";
 import { isErrorResponse, requireAdminUser } from "./utils/session";
+import { invalidate } from "./utils/memoryCache";
 
 export const handler: Handler = async (event) => {
   try {
@@ -40,6 +41,7 @@ export const handler: Handler = async (event) => {
 
     await recordPlantCountHistory(name, count);
 
+    invalidate("crops:");
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
