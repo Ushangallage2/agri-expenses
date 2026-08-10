@@ -1,18 +1,15 @@
 import { Handler } from "@netlify/functions";
 import pool from "./db";
-import jwt from "jsonwebtoken";
 import {
   ensureExpenseReceiptColumns,
   normalizeReceipt,
 } from "./utils/expenseReceiptsDb";
-
-const JWT_SECRET = process.env.JWT_SECRET!;
+import { isErrorResponse, requireAdminUser } from "./utils/session";
 
 export const handler: Handler = async (event) => {
   try {
-    const token = event.headers.cookie?.split("token=")?.[1];
-    if (!token) return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
-    jwt.verify(token, JWT_SECRET);
+    const auth = await requireAdminUser(event);
+    if (isErrorResponse(auth)) return auth;
 
     const { user, reason, amount, crop, date, receiptData, receiptMime } =
       JSON.parse(event.body || "{}");
@@ -20,9 +17,20 @@ export const handler: Handler = async (event) => {
     if (!user || !reason || typeof amount !== "number" || !crop)
       return { statusCode: 400, body: JSON.stringify({ error: "Missing or invalid fields" }) };
 
-    const userRes = await pool.query("SELECT id FROM users WHERE username=$1", [user]);
+    const userRes = await pool.query(
+      "SELECT id, role FROM users WHERE username=$1",
+      [user]
+    );
     if (userRes.rowCount === 0)
       return { statusCode: 400, body: JSON.stringify({ error: "User not found" }) };
+    if (String(userRes.rows[0]?.role || "") === "observe") {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          error: "Observe logins are not ledger people — pick an admin user",
+        }),
+      };
+    }
 
     await ensureExpenseReceiptColumns();
 

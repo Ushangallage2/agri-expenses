@@ -1,9 +1,10 @@
 /**
- * Create (or reset) an admin user in MySQL.
+ * Create (or reset) a user in MySQL.
  *
  * Usage:
  *   node scripts/create-admin.mjs
  *   node scripts/create-admin.mjs --username admin --password Secret123!
+ *   node scripts/create-admin.mjs --username observe --password demo --role observe
  *
  * Reads DATABASE_URL from .env (or process env).
  */
@@ -39,11 +40,13 @@ function loadEnvFile() {
 }
 
 function parseArgs(argv) {
-  const out = { username: "admin", password: null };
+  const out = { username: "admin", password: null, role: "admin" };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--username" && argv[i + 1]) out.username = argv[++i];
     else if (argv[i] === "--password" && argv[i + 1]) out.password = argv[++i];
+    else if (argv[i] === "--role" && argv[i + 1]) out.role = argv[++i];
   }
+  out.role = out.role === "observe" ? "observe" : "admin";
   return out;
 }
 
@@ -71,6 +74,21 @@ async function ensureSchema(conn) {
       password VARCHAR(255) NOT NULL
     )
   `);
+
+  const [cols] = await conn.query(
+    `SELECT COLUMN_NAME AS name
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'users'
+       AND COLUMN_NAME = 'role'`
+  );
+  if (!cols.length) {
+    await conn.query(
+      `ALTER TABLE users
+       ADD COLUMN role VARCHAR(32) NOT NULL DEFAULT 'admin'`
+    );
+  }
+
   await conn.query(`
     CREATE TABLE IF NOT EXISTS crops (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -115,6 +133,7 @@ async function main() {
 
   const args = parseArgs(process.argv.slice(2));
   const username = args.username;
+  const role = args.role;
   const password =
     args.password || crypto.randomBytes(9).toString("base64url");
 
@@ -136,24 +155,25 @@ async function main() {
     );
 
     if (existing.length > 0) {
-      await conn.execute("UPDATE users SET password = ? WHERE username = ?", [
-        hash,
-        username,
-      ]);
-      console.log(`Updated existing admin user: ${username}`);
+      await conn.execute(
+        "UPDATE users SET password = ?, role = ? WHERE username = ?",
+        [hash, role, username]
+      );
+      console.log(`Updated existing user: ${username} (role=${role})`);
     } else {
       const [result] = await conn.execute(
-        "INSERT INTO users (username, password) VALUES (?, ?)",
-        [username, hash]
+        "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+        [username, hash, role]
       );
-      console.log(`Created admin user id=${result.insertId}`);
+      console.log(`Created user id=${result.insertId} role=${role}`);
     }
 
     console.log("");
-    console.log("Admin credentials");
+    console.log(role === "observe" ? "Observe credentials" : "Admin credentials");
     console.log("-----------------");
     console.log(`username: ${username}`);
     console.log(`password: ${password}`);
+    console.log(`role:     ${role}`);
     console.log("");
   } finally {
     await conn.end();
@@ -161,6 +181,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("Failed to create admin:", err.message);
+  console.error("Failed to create user:", err.message);
   process.exit(1);
 });

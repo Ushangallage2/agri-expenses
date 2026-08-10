@@ -1,6 +1,6 @@
 import type { Handler, HandlerContext } from "@netlify/functions";
 import pool from "./db";
-import { requireAuth } from "../../src/utils/requireAuth";
+import { requireAdmin } from "../../src/utils/requireAuth";
 import {
   ensureFertilizerTables,
   mapApplication,
@@ -165,4 +165,4 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
   }
 };
 
-export const handler = requireAuth(baseHandler);
+export const handler = requireAdmin(baseHandler);

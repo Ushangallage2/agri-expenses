@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../utils/api";
 import SoundToggle from "../components/SoundToggle";
 import { play, unlockAudio } from "../utils/sounds";
+import { useAuth } from "../utils/AuthContext";
 
 type Config = {
   frequency: "weekly" | "monthly";
@@ -14,6 +15,7 @@ type Config = {
 
 export default function EmailReports() {
   const navigate = useNavigate();
+  const { isAdmin, loading: authLoading } = useAuth();
   const [frequency, setFrequency] = useState<"weekly" | "monthly">("weekly");
   const [enabled, setEnabled] = useState(true);
   const [emailsText, setEmailsText] = useState("");
@@ -25,8 +27,15 @@ export default function EmailReports() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!authLoading && !isAdmin) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [authLoading, isAdmin, navigate]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
     void load();
-  }, []);
+  }, [isAdmin]);
 
   async function load() {
     setLoading(true);

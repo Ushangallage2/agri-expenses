@@ -14,25 +14,25 @@ export type ScheduleStepInput = {
 };
 
 /** Advisor rescue plan — seedable for any crop (doses calibrated for small pepper vines). */
-export const DEFAULT_CYCLE_NAME = "Pepper base + 4-week rescue";
+export const DEFAULT_CYCLE_NAME = "Pepper Fertilizer Mixtures + rescue";
 
 export const DEFAULT_CYCLE_DESCRIPTION =
-  "BASE: Pepper fertilizer (bag mix) every 6–8 weeks (~50–75 g small / 100–150 g mature). " +
-  "Rescue Week 1: Dolomite 10–15g, Superphosphate 10g, Urea 5g, SOP 5g, Compost 200g per small vine. " +
-  "Week 2 MgSO₄ 150g/10L. Week 3 micros Zn5+Fe5+Borax1/10L. Week 4 disease spray. " +
-  "Use Apply week to sync inventory.";
+  "Pepper Fertilizer Mixtures (N14-P11-K14-Mg2): Yr1 250+250, Yr2 500+500, Yr3+ 700+100 g/plant " +
+  "at 1st/2nd monsoon. Optional Gliricidia mulch halves synthetic dose. " +
+  "Rescue weeks 1–4 for soil amendments / foliar / disease. Use Apply week to sync stock.";
 
 export const DEFAULT_CYCLE_STEPS: ScheduleStepInput[] = [
   {
     stepOrder: 0,
     weekNumber: 0,
-    title: "Base — Pepper fertilizer",
+    title: "Pepper Fertilizer Mixtures",
     instructions:
-      "Usual pepper special-mix BASE feed. Small vine ~50–75 g, mature ~100–150 g. " +
-      "Repeat every 6–8 weeks. Log via Apply week so the 25 kg bag stock stays accurate.",
-    suggestedAmount: 60,
-    unit: "g/vine",
-    intervalDays: 49,
+      "N14-P11-K14-Mg2. Apply at start of each monsoon: " +
+      "1st year 250 g + 250 g; 2nd year 500 g + 500 g; 3rd year+ 700 g + 100 g per plant. " +
+      "Can cut synthetic 50% with 10–15 kg Gliricidia mulch/vine, 4×/year.",
+    suggestedAmount: 250,
+    unit: "g/plant",
+    intervalDays: 180,
   },
   {
     stepOrder: 1,
@@ -61,9 +61,9 @@ export const DEFAULT_CYCLE_STEPS: ScheduleStepInput[] = [
     weekNumber: 3,
     title: "Week 3 — Foliar micronutrients",
     instructions:
-      "Per 10 L: ZnSO₄ 5 g, FeSO₄ 5 g, Borax 1 g + Teepol/Sandovit 2–5 mL. " +
-      "Dissolve separately, then combine. Spray AM/PM only — start low to avoid leaf burn.",
-    suggestedAmount: 11,
+      "Per 10 L: ZnSO₄ 5 g + Albert solution 5 g (covers Fe, B & other micros) + Teepol/Sandovit 2–5 mL. " +
+      "No separate FeSO₄/Borax — Albert provides Fe/B. Dissolve separately, then combine. Spray AM/PM only.",
+    suggestedAmount: 10,
     unit: "g/10L",
     intervalDays: 28,
   },
@@ -347,11 +347,101 @@ export async function recordPriceHistory(
  * mode=replace_stock: set stock to pack qty
  * mode=add_stock: add pack qty onto existing (default for re-import safety: set if new, skip stock if exists unless force)
  */
+async function migrateLegacyPepperFertilizerName() {
+  const LEGACY = "Pepper fertilizer";
+  const NEXT = "Pepper Fertilizer Mixtures";
+
+  const oldRow = await pool.query(
+    `SELECT id FROM fertilizers WHERE name = $1 LIMIT 1`,
+    [LEGACY]
+  );
+  if (!oldRow.rows[0]) return;
+
+  const newRow = await pool.query(
+    `SELECT id FROM fertilizers WHERE name = $1 LIMIT 1`,
+    [NEXT]
+  );
+
+  const oldId = Number(oldRow.rows[0].id);
+  if (!newRow.rows[0]) {
+    await pool.query(`UPDATE fertilizers SET name = $1 WHERE id = $2`, [
+      NEXT,
+      oldId,
+    ]);
+    return;
+  }
+
+  const newId = Number(newRow.rows[0].id);
+  await pool.query(
+    `UPDATE fertilizer_applications SET fertilizer_id = $1 WHERE fertilizer_id = $2`,
+    [newId, oldId]
+  );
+  await pool.query(
+    `UPDATE fertilizer_schedule_steps SET suggested_fertilizer_id = $1 WHERE suggested_fertilizer_id = $2`,
+    [newId, oldId]
+  );
+  await pool.query(
+    `DELETE FROM fertilizer_price_history WHERE fertilizer_id = $1`,
+    [oldId]
+  );
+  await pool.query(`DELETE FROM fertilizers WHERE id = $1`, [oldId]);
+}
+
+/** Remove FeSO₄ / Borax (and name variants) — Albert covers Fe/B micros. */
+async function retireObsoleteInventory() {
+  const { RETIRED_INVENTORY_NAMES } = await import("./fertilizerRecipes");
+  if (!RETIRED_INVENTORY_NAMES.length) return;
+
+  const placeholders = RETIRED_INVENTORY_NAMES.map((_, i) => `$${i + 1}`).join(
+    ", "
+  );
+  const found = await pool.query(
+    `SELECT id, name FROM fertilizers WHERE name IN (${placeholders})`,
+    RETIRED_INVENTORY_NAMES
+  );
+
+  for (const row of found.rows) {
+    const id = Number(row.id);
+    await pool.query(
+      `UPDATE fertilizer_schedule_steps
+       SET suggested_fertilizer_id = NULL
+       WHERE suggested_fertilizer_id = $1`,
+      [id]
+    );
+    await pool.query(
+      `DELETE FROM fertilizer_price_history WHERE fertilizer_id = $1`,
+      [id]
+    );
+    // Keep application history rows; LEFT JOIN may show null name after delete.
+    await pool.query(`DELETE FROM fertilizers WHERE id = $1`, [id]);
+  }
+}
+
+/** Refresh week-3 copy so existing schedules drop FeSO₄/Borax advice. */
+async function syncWeek3MicronutrientInstructions() {
+  const week3 = DEFAULT_CYCLE_STEPS.find((s) => s.weekNumber === 3);
+  if (!week3?.instructions) return;
+  await pool.query(
+    `UPDATE fertilizer_schedule_steps
+     SET instructions = $1, suggested_amount = $2, unit = $3
+     WHERE week_number = 3 AND title LIKE $4`,
+    [
+      week3.instructions,
+      week3.suggestedAmount ?? null,
+      week3.unit ?? null,
+      "%micronutrient%",
+    ]
+  );
+}
+
 export async function seedStarterInventory(opts?: {
   mode?: "set" | "add_if_zero";
 }) {
   const { STARTER_PURCHASE_PACK } = await import("./fertilizerRecipes");
   await ensureFertilizerTables();
+  await migrateLegacyPepperFertilizerName();
+  await retireObsoleteInventory();
+  await syncWeek3MicronutrientInstructions();
   const mode = opts?.mode || "add_if_zero";
   const results: {
     name: string;
@@ -375,14 +465,10 @@ export async function seedStarterInventory(opts?: {
         next = item.stock_qty;
       }
 
-      if (next !== current) {
-        await pool.query(`UPDATE fertilizers SET stock_qty = $1, unit = $2, notes = $3 WHERE id = $4`, [
-          next,
-          item.unit,
-          item.notes,
-          id,
-        ]);
-      }
+      await pool.query(
+        `UPDATE fertilizers SET stock_qty = $1, unit = $2, notes = $3 WHERE id = $4`,
+        [next, item.unit, item.notes, id]
+      );
       results.push({ name: item.name, id, stock_qty: next, created: false });
     } else {
       const created = await pool.query(

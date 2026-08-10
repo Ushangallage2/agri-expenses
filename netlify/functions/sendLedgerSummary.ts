@@ -1,5 +1,4 @@
 import type { Handler, HandlerEvent } from "@netlify/functions";
-import jwt from "jsonwebtoken";
 import {
   buildLedgerSummary,
   periodKeyFor,
@@ -13,18 +12,14 @@ import {
   getSummaryConfig,
   markSummarySent,
 } from "./utils/summaryDb";
-
-const JWT_SECRET = process.env.JWT_SECRET!;
+import {
+  isErrorResponse,
+  readAuthUser,
+  requireAdminUser,
+} from "./utils/session";
 
 function isUserAuthed(event: HandlerEvent) {
-  const token = event.headers.cookie?.split("token=")?.[1]?.split(";")[0];
-  if (!token || !JWT_SECRET) return false;
-  try {
-    jwt.verify(token, JWT_SECRET);
-    return true;
-  } catch {
-    return false;
-  }
+  return Boolean(readAuthUser(event));
 }
 
 function isCronOrSecret(event: HandlerEvent) {
@@ -132,15 +127,14 @@ export const handler: Handler = async (event) => {
     }
 
     // Manual "Send now" from the app (current period)
-    if (!isUserAuthed(event)) {
-      return { statusCode: 401, body: "Unauthorized" };
-    }
     if (event.httpMethod === "OPTIONS") {
       return { statusCode: 204, body: "" };
     }
     if (event.httpMethod !== "POST") {
       return { statusCode: 405, body: "Method Not Allowed" };
     }
+    const auth = await requireAdminUser(event);
+    if (isErrorResponse(auth)) return auth;
 
     const body = JSON.parse(event.body || "{}");
     const usePrevious = Boolean(body.previousPeriod);

@@ -14,6 +14,7 @@ type Note = {
   note: string;
   entry_type?: EntryType;
   completed?: number;
+  source?: string | null;
   created_at: string;
 };
 
@@ -110,7 +111,7 @@ export default function CropNotes() {
       await loadImages();
     } catch (err: any) {
       console.error(err);
-      setError((prev) => prev || "Images unavailable — restart npm run dev if you're local.");
+      setError((prev) => prev || "Images unavailable â€” restart npm run dev if you're local.");
     }
   }
 
@@ -118,7 +119,7 @@ export default function CropNotes() {
     e.preventDefault();
     const n = Number(plantCount);
     if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
-      setError("Plant count must be a whole number ≥ 0");
+      setError("Plant count must be a whole number â‰¥ 0");
       return;
     }
     setSavingPlants(true);
@@ -305,7 +306,7 @@ export default function CropNotes() {
           className="glass-btn"
           onClick={() => navigate("/dashboard")}
         >
-          ← Back
+          â† Back
         </button>
         <div className="text-center flex-1">
           <p className="eyebrow">Crop ledger</p>
@@ -322,7 +323,7 @@ export default function CropNotes() {
               }
             >
               <span className="todo-ripple__icon" aria-hidden>
-                ✓
+                âœ“
               </span>
               <span className="todo-ripple__count">{openTodoCount}</span>
               <span>todos</span>
@@ -349,7 +350,7 @@ export default function CropNotes() {
               navigate(`/fertilizer?crop=${encodeURIComponent(crop)}`);
             }}
           >
-            Open fertilizer →
+            Open fertilizer â†’
           </button>
         </div>
       </section>
@@ -364,7 +365,7 @@ export default function CropNotes() {
               <span className="text-emerald-300 font-semibold">
                 {savedPlantCount.toLocaleString()}
               </span>{" "}
-              plants — shown on the dashboard counter.
+              plants â€” shown on the dashboard counter.
             </p>
           </div>
           <div className="plant-count-badge plant-count-badge--lg" title="Current plants">
@@ -393,7 +394,7 @@ export default function CropNotes() {
             className={`glass-btn gold-btn ${savingPlants ? "opacity-50" : ""}`}
             disabled={savingPlants}
           >
-            {savingPlants ? "Saving…" : "Save count"}
+            {savingPlants ? "Savingâ€¦" : "Save count"}
           </button>
         </form>
         {plantMessage && (
@@ -427,7 +428,7 @@ export default function CropNotes() {
                      transition px-4 py-8 text-center cursor-pointer"
         >
           <p className="font-display text-2xl text-gold mb-1">
-            {uploading ? "Uploading…" : "Insert image"}
+            {uploading ? "Uploadingâ€¦" : "Insert image"}
           </p>
           <p className="text-sm text-gold-muted">
             Tap to choose a photo from your device
@@ -489,8 +490,8 @@ export default function CropNotes() {
           className="glass-input min-h-[120px] resize-y"
           placeholder={
             entryType === "todo"
-              ? "Task to do for this crop…"
-              : "Field observations, harvest notes, vendor details…"
+              ? "Task to do for this cropâ€¦"
+              : "Field observations, harvest notes, vendor detailsâ€¦"
           }
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -498,7 +499,7 @@ export default function CropNotes() {
 
         <div className="flex flex-wrap items-center gap-3">
           <label className="glass-btn gold-btn cursor-pointer inline-flex items-center gap-2">
-            📷 Attach image
+            ðŸ“· Attach image
             <input
               type="file"
               accept="image/*"
@@ -518,7 +519,7 @@ export default function CropNotes() {
                 className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-red-300 text-xs"
                 onClick={() => setPendingImage(null)}
               >
-                ✕
+                âœ•
               </button>
             </div>
           )}
@@ -527,7 +528,7 @@ export default function CropNotes() {
             disabled={loading || (!text.trim() && !pendingImage)}
           >
             {loading
-              ? "Saving…"
+              ? "Savingâ€¦"
               : entryType === "todo"
                 ? "Save todo"
                 : "Save note"}
@@ -544,10 +545,18 @@ export default function CropNotes() {
         {notes.map((n, i) => {
           const type: EntryType = n.entry_type === "todo" ? "todo" : "note";
           const done = type === "todo" && !!Number(n.completed);
+          const fertDue =
+            type === "todo" &&
+            !done &&
+            (String(n.source || "").startsWith("fert_due:") ||
+              /^(PAST DUE|FINISH REST|IN PROGRESS):/i.test(n.note));
+          const finishRest = fertDue && /^FINISH REST:/i.test(n.note);
           return (
             <article
               key={n.id}
-              className={`glass-card relative animate-rise ${done ? "note-todo-done" : ""}`}
+              className={`glass-card relative animate-rise ${done ? "note-todo-done" : ""} ${
+                fertDue ? "border border-amber-400/40" : ""
+              }`}
               style={{ animationDelay: `${i * 40}ms` }}
             >
               <button
@@ -556,20 +565,43 @@ export default function CropNotes() {
                 onClick={() => setNoteToDelete(n.id)}
                 aria-label="Delete entry"
               >
-                ✕
+                X
               </button>
               <div className="flex flex-wrap items-center gap-2 mb-2 pr-8">
                 <span
                   className={`entry-type-badge ${
                     done
                       ? "entry-type-badge--done"
-                      : type === "todo"
+                      : fertDue
                         ? "entry-type-badge--todo"
-                        : "entry-type-badge--note"
+                        : type === "todo"
+                          ? "entry-type-badge--todo"
+                          : "entry-type-badge--note"
                   }`}
                 >
-                  {done ? "Done" : type === "todo" ? "Todo" : "Note"}
+                  {done
+                    ? "Done"
+                    : finishRest
+                      ? "Finish rest - fertilizer"
+                      : fertDue
+                        ? "Past due - fertilizer"
+                        : type === "todo"
+                          ? "Todo"
+                          : "Note"}
                 </span>
+                {fertDue && (
+                  <button
+                    type="button"
+                    className="glass-btn text-xs py-1 px-2"
+                    onClick={() =>
+                      navigate(
+                        `/fertilizer?crop=${encodeURIComponent(crop)}`
+                      )
+                    }
+                  >
+                    {finishRest ? "Finish remaining vines" : "Apply week"}
+                  </button>
+                )}
                 <p className="text-sm text-gold-muted">
                   {new Date(n.created_at).toLocaleString()}
                 </p>

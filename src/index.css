@@ -49,6 +49,26 @@
     @apply text-xs uppercase tracking-[0.28em] text-[var(--gold-dim)] mb-1;
   }
 
+  /* Observe mode: hide real money figures for safe demos */
+  .money-blur {
+    filter: blur(0.55rem);
+    user-select: none;
+    pointer-events: none;
+  }
+
+  .money-blur-block {
+    filter: blur(0.65rem);
+    user-select: none;
+    pointer-events: none;
+  }
+
+  .observe-banner {
+    @apply rounded-xl px-3 py-2 text-sm border;
+    color: #fde68a;
+    background: rgba(120, 53, 15, 0.35);
+    border-color: rgba(251, 191, 36, 0.35);
+  }
+
   .text-gold {
     color: var(--gold-bright);
   }

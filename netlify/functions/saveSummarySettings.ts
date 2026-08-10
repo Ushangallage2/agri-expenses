@@ -1,19 +1,6 @@
 import type { Handler } from "@netlify/functions";
-import jwt from "jsonwebtoken";
 import { saveSummaryConfig, type SummaryFrequency } from "./utils/summaryDb";
-
-const JWT_SECRET = process.env.JWT_SECRET!;
-
-function authed(event: Parameters<Handler>[0]) {
-  const token = event.headers.cookie?.split("token=")?.[1]?.split(";")[0];
-  if (!token) return false;
-  try {
-    jwt.verify(token, JWT_SECRET);
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { isErrorResponse, requireAdminUser } from "./utils/session";
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
@@ -22,9 +9,8 @@ export const handler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
-  if (!authed(event)) {
-    return { statusCode: 401, body: "Unauthorized" };
-  }
+  const auth = await requireAdminUser(event);
+  if (isErrorResponse(auth)) return auth;
 
   try {
     const body = JSON.parse(event.body || "{}");

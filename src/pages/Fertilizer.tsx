@@ -6,9 +6,18 @@ import ConfirmModal from "../components/ConfirmModal";
 import { play, unlockAudio } from "../utils/sounds";
 import {
   RESCUE_WEEKS,
+  PEPPER_MIXTURE,
   lineGrams,
+  gramsFromConfig,
+  defaultFertilizerRateConfig,
   type RescueWeek,
+  type RecipeLine,
+  type PlantAge,
+  type Monsoon,
+  type FertilizerRateConfig,
 } from "../utils/fertilizerRecipes";
+import { useAuth } from "../utils/AuthContext";
+import Money from "../components/Money";
 
 type Fertilizer = {
   id: number;
@@ -61,7 +70,7 @@ type PriceRow = {
   recorded_at: string;
 };
 
-type Tab = "apply" | "inventory" | "schedules" | "usage";
+type Tab = "apply" | "inventory" | "schedules" | "usage" | "rates";
 
 type CropMeta = { name: string; plant_count: number };
 
@@ -79,6 +88,163 @@ function fmtDate(value: string | null | undefined) {
   return s;
 }
 
+/** Format grams with optional kg note, e.g. "12,500 g (12.5 kg)". */
+function fmtGramsTotal(grams: number) {
+  const g = Number(grams) || 0;
+  const gLabel = g.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  if (g >= 1000) {
+    const kg = g / 1000;
+    return `${gLabel} g (${kg.toLocaleString(undefined, {
+      maximumFractionDigits: 3,
+    })} kg)`;
+  }
+  return `${gLabel} g`;
+}
+
+/** e.g. "250 g/plant × 50 plants = 12,500 g (12.5 kg)" */
+function fmtScaledDose(
+  perUnit: number,
+  unitSuffix: string,
+  count: number,
+  countLabel: string
+) {
+  const total = perUnit * count;
+  return `${perUnit.toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+  })} ${unitSuffix} × ${count.toLocaleString()} ${countLabel} = ${fmtGramsTotal(total)}`;
+}
+
+/** Cost in ledger currency from grams used and unit_price (per kg/L). */
+function lineCostFromGrams(
+  grams: number,
+  unitPrice: number,
+  stockUnit: string
+): number {
+  if (!(grams > 0) || !(unitPrice > 0)) return 0;
+  const u = stockUnit.trim().toLowerCase();
+  const stockQty =
+    u === "kg" || u === "l" || u === "liter" || u === "litre"
+      ? grams / 1000
+      : grams;
+  return Number((stockQty * unitPrice).toFixed(2));
+}
+
+type WeekNeedLine = {
+  fertilizerName: string;
+  optional?: boolean;
+  mode: RecipeLine["mode"];
+  perUnit: number;
+  unitSuffix: string;
+  count: number;
+  countLabel: string;
+  totalGrams: number;
+};
+
+type WeekNeedBlock = {
+  week: number;
+  title: string;
+  lines: WeekNeedLine[];
+  note?: string;
+};
+
+/** Full schedule needs for a crop plant count (and tanks for foliar weeks). */
+function buildScheduleNeeds(opts: {
+  weeks: RescueWeek[];
+  mixturePerPlant: number;
+  vines: number;
+  tanks: number;
+  plantAge: PlantAge;
+  monsoon: Monsoon;
+  halveWithGliricidia: boolean;
+  tankLiters: number;
+}): WeekNeedBlock[] {
+  const {
+    weeks,
+    mixturePerPlant,
+    vines,
+    tanks,
+    plantAge,
+    monsoon,
+    halveWithGliricidia,
+    tankLiters,
+  } = opts;
+
+  return weeks.map((w) => {
+    if (w.week === 0) {
+      const per = mixturePerPlant;
+      return {
+        week: 0,
+        title: w.title,
+        note: `${PEPPER_MIXTURE.ageLabels[plantAge]} · ${PEPPER_MIXTURE.monsoonLabels[monsoon]}${
+          halveWithGliricidia ? " · halved (Gliricidia)" : ""
+        }`,
+        lines: [
+          {
+            fertilizerName: PEPPER_MIXTURE.productName,
+            mode: "per_plant",
+            perUnit: per,
+            unitSuffix: "g/plant",
+            count: vines,
+            countLabel: vines === 1 ? "plant" : "plants",
+            totalGrams: per * vines,
+          },
+        ],
+      };
+    }
+
+    if (w.lines.length === 0) {
+      return {
+        week: w.week,
+        title: w.title,
+        note: "No bag fertilizer — disease spray / cultural care per label",
+        lines: [],
+      };
+    }
+
+    const lines: WeekNeedLine[] = w.lines.map((line) => {
+      if (line.mode === "per_plant") {
+        const per = line.gramsPerPlant || 0;
+        return {
+          fertilizerName: line.fertilizerName,
+          optional: line.optional,
+          mode: line.mode,
+          perUnit: per,
+          unitSuffix: "g/plant",
+          count: vines,
+          countLabel: vines === 1 ? "plant" : "plants",
+          totalGrams: per * vines,
+        };
+      }
+      if (line.mode === "per_tank") {
+        const per = line.gramsPerTank || 0;
+        return {
+          fertilizerName: line.fertilizerName,
+          optional: line.optional,
+          mode: line.mode,
+          perUnit: per,
+          unitSuffix: `g/${tankLiters}L tank`,
+          count: tanks,
+          countLabel: tanks === 1 ? "tank" : "tanks",
+          totalGrams: per * tanks,
+        };
+      }
+      const fixed = line.gramsFixed || 0;
+      return {
+        fertilizerName: line.fertilizerName,
+        optional: line.optional,
+        mode: line.mode,
+        perUnit: fixed,
+        unitSuffix: "g",
+        count: 1,
+        countLabel: "batch",
+        totalGrams: fixed,
+      };
+    });
+
+    return { week: w.week, title: w.title, lines };
+  });
+}
+
 async function readError(res: Response) {
   const text = await res.text();
   try {
@@ -90,6 +256,7 @@ async function readError(res: Response) {
 }
 
 export default function FertilizerPage() {
+  const { isAdmin, isObserve } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const cropParam = searchParams.get("crop") || "";
@@ -144,11 +311,28 @@ export default function FertilizerPage() {
   // Apply-week wizard
   const [applyCrop, setApplyCrop] = useState(cropParam);
   const [applyWeek, setApplyWeek] = useState(0);
+  /** Total vines on the crop (schedule “full need”). */
   const [vineCount, setVineCount] = useState("50");
+  /** Vines treated in this log (partial apply over several days). */
+  const [treatedCount, setTreatedCount] = useState("50");
   const [tankCount, setTankCount] = useState("1");
+  const [plantAge, setPlantAge] = useState<PlantAge>("year1");
+  const [monsoon, setMonsoon] = useState<Monsoon>("first");
+  const [halveWithGliricidia, setHalveWithGliricidia] = useState(false);
+  /** Force-clear past-due even if treated < total. */
+  const [markWeekComplete, setMarkWeekComplete] = useState(false);
+  /** Ad-hoc Pepper Fertilizer Mixtures beyond the usual monsoon cycle. */
+  const [extraRound, setExtraRound] = useState(false);
   const [applyDate, setApplyDate] = useState(todayISO());
   const [lineEnabled, setLineEnabled] = useState<Record<string, boolean>>({});
   const [lineAmounts, setLineAmounts] = useState<Record<string, string>>({});
+  const [rateConfig, setRateConfig] = useState<FertilizerRateConfig>(
+    defaultFertilizerRateConfig
+  );
+  const [ratesDraft, setRatesDraft] = useState<FertilizerRateConfig | null>(
+    null
+  );
+  const [ratesSaving, setRatesSaving] = useState(false);
 
   const cropSchedules = useMemo(
     () =>
@@ -206,25 +390,240 @@ export default function FertilizerPage() {
     void loadApplications(selectedCrop);
   }, [selectedCrop]);
 
+  const rateWeeks = rateConfig.weeks?.length ? rateConfig.weeks : RESCUE_WEEKS;
+
   const activeRescueWeek: RescueWeek =
-    RESCUE_WEEKS.find((w) => w.week === applyWeek) || RESCUE_WEEKS[0];
+    rateWeeks.find((w) => w.week === applyWeek) || rateWeeks[0];
+
+  const applyCropMeta = useMemo(
+    () =>
+      cropMeta.find(
+        (c) => c.name.toLowerCase() === applyCrop.toLowerCase()
+      ) || null,
+    [cropMeta, applyCrop]
+  );
+  const vinesN = Math.max(0, Math.floor(Number(vineCount) || 0));
+  const treatedN = Math.max(0, Math.floor(Number(treatedCount) || 0));
+  const tanksN = Math.max(0, Number(tankCount) || 0);
+  const isPartialApply = vinesN > 0 && treatedN > 0 && treatedN < vinesN;
+  const mixturePerPlant = useMemo(() => {
+    let g = gramsFromConfig(rateConfig, plantAge, monsoon);
+    if (halveWithGliricidia) g = g / 2;
+    return g;
+  }, [rateConfig, plantAge, monsoon, halveWithGliricidia]);
+
+  const scheduleNeeds = useMemo(
+    () =>
+      buildScheduleNeeds({
+        weeks: rateWeeks,
+        mixturePerPlant,
+        vines: vinesN,
+        tanks: tanksN,
+        plantAge,
+        monsoon,
+        halveWithGliricidia,
+        tankLiters: rateConfig.tankLiters || 10,
+      }),
+    [
+      rateWeeks,
+      mixturePerPlant,
+      vinesN,
+      tanksN,
+      plantAge,
+      monsoon,
+      halveWithGliricidia,
+      rateConfig.tankLiters,
+    ]
+  );
+
+  const scheduleNeedsWithCost = useMemo(() => {
+    return scheduleNeeds.map((block) => ({
+      ...block,
+      lines: block.lines.map((line) => {
+        const fert = fertilizers.find((f) => f.name === line.fertilizerName);
+        const cost = fert
+          ? lineCostFromGrams(line.totalGrams, fert.unit_price, fert.unit)
+          : 0;
+        return { ...line, estCost: cost, hasPrice: Boolean(fert && fert.unit_price > 0) };
+      }),
+      weekCost: block.lines.reduce((s, line) => {
+        const fert = fertilizers.find((f) => f.name === line.fertilizerName);
+        if (!fert || !(fert.unit_price > 0)) return s;
+        return s + lineCostFromGrams(line.totalGrams, fert.unit_price, fert.unit);
+      }, 0),
+    }));
+  }, [scheduleNeeds, fertilizers]);
+
+  /** Live: volumes + expense estimate for enabled lines (updates as vines/amounts/prices change). */
+  const applyLivePreview = useMemo(() => {
+    let totalGrams = 0;
+    let totalCost = 0;
+    let priced = 0;
+    let unpriced = 0;
+    const rows: {
+      name: string;
+      grams: number;
+      cost: number;
+      hasPrice: boolean;
+      equation: string;
+    }[] = [];
+
+    for (const line of activeRescueWeek.lines) {
+      if (!lineEnabled[line.fertilizerName]) continue;
+      const grams = Number(lineAmounts[line.fertilizerName] || 0);
+      if (!(grams > 0)) continue;
+      const fert = fertilizers.find((f) => f.name === line.fertilizerName);
+      const price = fert ? Number(fert.unit_price) || 0 : 0;
+      const cost = fert
+        ? lineCostFromGrams(grams, price, fert.unit)
+        : 0;
+      const equation =
+        applyWeek === 0
+          ? fmtScaledDose(
+              mixturePerPlant,
+              "g/plant",
+              treatedN,
+              treatedN === 1 ? "plant treated" : "plants treated"
+            )
+          : line.mode === "per_plant"
+            ? fmtScaledDose(
+                line.gramsPerPlant || 0,
+                "g/plant",
+                treatedN,
+                treatedN === 1 ? "plant treated" : "plants treated"
+              )
+            : line.mode === "per_tank"
+              ? fmtScaledDose(
+                  line.gramsPerTank || 0,
+                  `g/${rateConfig.tankLiters || 10}L`,
+                  tanksN,
+                  tanksN === 1 ? "tank" : "tanks"
+                )
+              : fmtGramsTotal(line.gramsFixed || 0);
+
+      totalGrams += grams;
+      if (cost > 0) {
+        totalCost += cost;
+        priced += 1;
+      } else {
+        unpriced += 1;
+      }
+      rows.push({
+        name: line.fertilizerName,
+        grams,
+        cost,
+        hasPrice: price > 0,
+        equation,
+      });
+    }
+
+    return {
+      rows,
+      totalGrams,
+      totalCost: Number(totalCost.toFixed(2)),
+      priced,
+      unpriced,
+    };
+  }, [
+    activeRescueWeek,
+    lineEnabled,
+    lineAmounts,
+    fertilizers,
+    applyWeek,
+    mixturePerPlant,
+    treatedN,
+    tanksN,
+    rateConfig.tankLiters,
+  ]);
+
+  /**
+   * Plants treated in the current (incomplete) cycle for this week.
+   * When a cycle hits the crop total, the accumulator resets for the next round.
+   */
+  const cycleProgress = useMemo(() => {
+    const seen = new Set<string>();
+    const batches: { treated: number; total: number; at: string }[] = [];
+    for (const a of applications) {
+      if (a.crop_name?.toLowerCase() !== applyCrop.toLowerCase()) continue;
+      const notes = String(a.notes || "");
+      const weekOk =
+        notes.includes(`[week:${applyWeek}]`) ||
+        (applyWeek > 0 && notes.includes(`Week ${applyWeek}`)) ||
+        (applyWeek === 0 &&
+          /Pepper Fertilizer Mixtures|Extra round/i.test(notes));
+      if (!weekOk) continue;
+      const m = notes.match(/\[treated:(\d+)(?:\/(\d+))?\]/i);
+      if (!m) continue;
+      const key = `${String(a.applied_at).slice(0, 16)}:${m[1]}:${m[2] || ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      batches.push({
+        at: String(a.applied_at),
+        treated: Number(m[1]) || 0,
+        total: Number(m[2]) || vinesN || 0,
+      });
+    }
+    batches.sort((a, b) => a.at.localeCompare(b.at));
+
+    let treated = 0;
+    let total = vinesN;
+    for (const b of batches) {
+      if (b.total > 0) total = b.total;
+      treated += b.treated;
+      if (total > 0 && treated >= total) treated = 0;
+    }
+    const remaining = total > 0 ? Math.max(0, total - treated) : 0;
+    return {
+      treated,
+      total,
+      remaining,
+      incomplete: treated > 0 && remaining > 0,
+    };
+  }, [applications, applyCrop, applyWeek, vinesN]);
+
+  const treatedSoFar = cycleProgress.treated;
+  const vinesLeft = cycleProgress.remaining;
+
+  // Encourage finishing: default “treated today” to vines still left
+  useEffect(() => {
+    if (!cycleProgress.incomplete || vinesLeft <= 0) return;
+    setTreatedCount(String(vinesLeft));
+  }, [applyCrop, applyWeek, cycleProgress.incomplete, vinesLeft]);
 
   useEffect(() => {
-    const vines = Math.max(0, Math.floor(Number(vineCount) || 0));
+    const treated = Math.max(0, Math.floor(Number(treatedCount) || 0));
     const tanks = Math.max(0, Number(tankCount) || 0);
     const refreshed: Record<string, string> = {};
     const refreshedEn: Record<string, boolean> = {};
-    for (const line of activeRescueWeek.lines) {
-      const key = line.fertilizerName;
-      refreshedEn[key] = line.optional ? false : true;
-      refreshed[key] = String(
-        Number(lineGrams(line, vines, tanks).toFixed(2))
-      );
+
+    if (applyWeek === 0) {
+      let perPlant = gramsFromConfig(rateConfig, plantAge, monsoon);
+      if (halveWithGliricidia) perPlant = perPlant / 2;
+      const key = PEPPER_MIXTURE.productName;
+      refreshedEn[key] = true;
+      refreshed[key] = String(Number((perPlant * treated).toFixed(2)));
+    } else {
+      for (const line of activeRescueWeek.lines) {
+        const key = line.fertilizerName;
+        refreshedEn[key] = line.optional ? false : true;
+        refreshed[key] = String(
+          Number(lineGrams(line, treated, tanks).toFixed(2))
+        );
+      }
     }
     setLineEnabled(refreshedEn);
     setLineAmounts(refreshed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyWeek, vineCount, tankCount]);
+  }, [
+    applyWeek,
+    treatedCount,
+    tankCount,
+    plantAge,
+    monsoon,
+    halveWithGliricidia,
+    rateConfig,
+    activeRescueWeek,
+  ]);
 
   useEffect(() => {
     if (!applyCrop) return;
@@ -233,8 +632,52 @@ export default function FertilizerPage() {
     );
     if (meta && meta.plant_count > 0) {
       setVineCount(String(meta.plant_count));
+      setTreatedCount(String(meta.plant_count));
     }
   }, [applyCrop, cropMeta]);
+
+  async function loadRateConfig() {
+    const res = await apiFetch("/getFertilizerRates");
+    if (!res.ok) return;
+    const data = (await res.json()) as FertilizerRateConfig;
+    if (data?.weeks) {
+      setRateConfig({
+        ...defaultFertilizerRateConfig(),
+        ...data,
+        mixtureRates: data.mixtureRates || defaultFertilizerRateConfig().mixtureRates,
+        weeks: data.weeks.length ? data.weeks : RESCUE_WEEKS,
+        intervals: data.intervals || defaultFertilizerRateConfig().intervals,
+        tankLiters: Number(data.tankLiters) > 0 ? Number(data.tankLiters) : 10,
+      });
+    }
+  }
+
+  async function saveRateConfig() {
+    if (!ratesDraft) return;
+    void unlockAudio();
+    play("click");
+    setRatesSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const res = await apiFetch("/saveFertilizerRates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config: ratesDraft }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const saved = (await res.json()) as FertilizerRateConfig;
+      setRateConfig(saved);
+      setRatesDraft(null);
+      play("success");
+      setMessage("Fertilizer rates saved — Apply week uses the new amounts.");
+    } catch (e: any) {
+      play("error");
+      setError(e?.message || "Failed to save rates");
+    } finally {
+      setRatesSaving(false);
+    }
+  }
 
   async function loadAll() {
     setLoading(true);
@@ -243,6 +686,7 @@ export default function FertilizerPage() {
       await Promise.all([
         loadCrops(),
         loadFertilizers(),
+        loadRateConfig(),
         loadSchedules(selectedCrop || undefined),
         loadApplications(selectedCrop || undefined),
       ]);
@@ -295,7 +739,7 @@ export default function FertilizerPage() {
       play("save");
       setMessage(
         mode === "set"
-          ? "Purchase pack loaded — stock set to your bought amounts (+ 25 kg pepper fertilizer)."
+          ? "Purchase pack loaded — stock set to bought amounts (40 kg Mixtures · 5 kg MgSO₄)."
           : "Purchase pack synced — missing products added; empty stocks filled."
       );
     } catch (e: any) {
@@ -304,6 +748,14 @@ export default function FertilizerPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function mixturesWeekLabel() {
+    const base = activeRescueWeek.title;
+    if (applyWeek === 0 && extraRound) {
+      return `Extra round — ${base}`;
+    }
+    return base;
   }
 
   async function applyRescueWeek(e: FormEvent) {
@@ -318,13 +770,35 @@ export default function FertilizerPage() {
     setError("");
     setMessage("");
     try {
+      if (!(treatedN > 0)) {
+        throw new Error("Enter how many plants / vines were treated today");
+      }
+
+      const weekLabel = mixturesWeekLabel();
+      const coverage =
+        vinesN > 0
+          ? `[treated:${treatedN}/${vinesN}]`
+          : `[treated:${treatedN}]`;
+      const partialLabel = isPartialApply
+        ? ` Partial ${treatedN}/${vinesN} vines`
+        : vinesN > 0
+          ? ` Full ${treatedN}/${vinesN} vines`
+          : ` ${treatedN} vines`;
+      const detail =
+        applyWeek === 0
+          ? ` · ${PEPPER_MIXTURE.ageLabels[plantAge]} · ${PEPPER_MIXTURE.monsoonLabels[monsoon]}${
+              halveWithGliricidia ? " · halved (Gliricidia)" : ""
+            }`
+          : "";
+      const noteBase = `${coverage}${partialLabel} · ${weekLabel}${detail} · ${applyCrop}`;
+
       const lines = activeRescueWeek.lines
         .filter((line) => lineEnabled[line.fertilizerName])
         .map((line) => ({
           fertilizerName: line.fertilizerName,
           amount: Number(lineAmounts[line.fertilizerName]),
           unit: "g",
-          notes: `${activeRescueWeek.title} · ${applyCrop}`,
+          notes: noteBase,
         }))
         .filter((l) => l.amount > 0);
 
@@ -336,13 +810,20 @@ export default function FertilizerPage() {
         );
       }
 
+      const finishWeek =
+        markWeekComplete || (vinesN > 0 && treatedN >= vinesN);
+
       const res = await apiFetch("/addFertilizerApplicationBatch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cropName: applyCrop,
           appliedAt: applyDate,
-          weekLabel: activeRescueWeek.title,
+          weekLabel,
+          weekNumber: applyWeek,
+          treatedPlants: treatedN,
+          totalPlants: vinesN,
+          markWeekComplete: finishWeek,
           lines,
         }),
       });
@@ -355,9 +836,38 @@ export default function FertilizerPage() {
       if (data.fertilizers) setFertilizers(data.fertilizers);
       await loadApplications(applyCrop);
       play("save");
+      const exp = data.expense as
+        | {
+            amount?: number;
+            pricedLines?: number;
+            skippedNoPrice?: string[];
+          }
+        | null
+        | undefined;
+      let expenseMsg = "";
+      if (exp && Number(exp.amount) < 0) {
+        expenseMsg = ` Ledger expense ${Math.abs(Number(exp.amount)).toLocaleString()} logged for this week.`;
+      } else if (exp && Array.isArray(exp.skippedNoPrice) && exp.skippedNoPrice.length) {
+        expenseMsg =
+          " No ledger expense — set unit prices on Inventory for: " +
+          exp.skippedNoPrice.join(", ") +
+          ".";
+      }
       setMessage(
-        `Logged ${lines.length} product(s) for ${applyCrop}. Inventory updated in real time.`
+        (applyWeek === 0 && extraRound
+          ? `Logged Extra round (${lines.length} product(s)) for ${treatedN} vine(s) on ${applyCrop}.`
+          : `Logged ${lines.length} product(s) for ${treatedN}/${
+              vinesN || treatedN
+            } vine(s) on ${applyCrop}.`) +
+          (finishWeek
+            ? " Week marked complete."
+            : isPartialApply
+              ? " Partial — past-due stays until crop is finished."
+              : "") +
+          " Inventory updated." +
+          expenseMsg
       );
+      // After save, applications reload; cycleProgress effect will set remaining.
       setSelectedCrop(applyCrop);
       setUseCrop(applyCrop);
     } catch (err: any) {
@@ -844,7 +1354,10 @@ export default function FertilizerPage() {
     { id: "inventory", label: "Inventory" },
     { id: "schedules", label: "Schedules" },
     { id: "usage", label: "Log usage" },
+    ...(isAdmin ? [{ id: "rates" as const, label: "Edit rates" }] : []),
   ];
+
+  const editingRates = ratesDraft || rateConfig;
 
   return (
     <div className="page-container min-h-screen animate-rise">
@@ -867,6 +1380,13 @@ export default function FertilizerPage() {
         </div>
       </header>
 
+      {isObserve && (
+        <div className="observe-banner mb-4">
+          Observe mode — unit prices are blurred; stock edits and apply are
+          admin-only.
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2 mb-6">
         {tabs.map((t) => (
           <button
@@ -876,6 +1396,9 @@ export default function FertilizerPage() {
             onClick={() => {
               play("click");
               setTab(t.id);
+              if (t.id === "rates") {
+                setRatesDraft(structuredClone(rateConfig));
+              }
             }}
           >
             {t.label}
@@ -903,9 +1426,9 @@ export default function FertilizerPage() {
                     Apply week & sync stock
                   </h2>
                   <p className="text-sm text-gold-muted mt-2 leading-relaxed">
-                    Enter vine count (or use crop plant count). We calculate grams
-                    from the advisor recipe; confirm and log — inventory deducts
-                    automatically (g → kg).
+                    Crop plant count auto-fills vines. Each week shows per-plant
+                    (or per-tank) rates and the total for all plants before you
+                    log — inventory deducts automatically (g → kg).
                   </p>
                 </div>
 
@@ -916,24 +1439,9 @@ export default function FertilizerPage() {
                     disabled={saving}
                     onClick={() => void importPurchasePack("set")}
                   >
-                    Load purchase pack into stock
-                  </button>
-                  <button
-                    type="button"
-                    className="glass-btn"
-                    disabled={saving}
-                    onClick={() => void importPurchasePack("add_if_zero")}
-                  >
-                    Fill only empty items
+                    Sync inventory from purchases
                   </button>
                 </div>
-                <p className="text-xs text-gold-muted">
-                  Pack (your note): Dolomite 3 · Superphosphate 3 · Urea 2 · SOP
-                  2 · NPK 19:19:19 2 · Compost 20 · Albert 2 kg +{" "}
-                  <strong className="text-emerald-300">Pepper fertilizer 25 kg (BASE)</strong>.
-                  Foliar products start at 0 kg until restocked. Use week{" "}
-                  <strong>Base</strong> for the usual pepper mix cycle.
-                </p>
 
                 <form onSubmit={applyRescueWeek} className="space-y-3">
                   <label className="block">
@@ -953,17 +1461,59 @@ export default function FertilizerPage() {
                     </select>
                   </label>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <label className="block">
-                      <span className="eyebrow mb-1 block">Vines (plants)</span>
+                      <span className="eyebrow mb-1 flex items-center gap-2 flex-wrap">
+                        Total plants on crop
+                        {applyCropMeta && applyCropMeta.plant_count > 0 ? (
+                          <span
+                            className="plant-count-badge"
+                            title="Crop plant count"
+                          >
+                            <span className="plant-count-badge__value">
+                              {applyCropMeta.plant_count}
+                            </span>
+                            <span className="plant-count-badge__label">
+                              saved
+                            </span>
+                          </span>
+                        ) : null}
+                      </span>
                       <input
                         type="number"
                         min={0}
                         step={1}
                         className="glass-input"
                         value={vineCount}
-                        onChange={(e) => setVineCount(e.target.value)}
+                        onChange={(e) => {
+                          setVineCount(e.target.value);
+                          // If treated was matching old total, keep in sync
+                          if (
+                            treatedCount === vineCount ||
+                            Number(treatedCount) > Number(e.target.value)
+                          ) {
+                            setTreatedCount(e.target.value);
+                          }
+                        }}
                       />
+                    </label>
+                    <label className="block">
+                      <span className="eyebrow mb-1 block">
+                        Treated today (vines)
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        className="glass-input"
+                        value={treatedCount}
+                        onChange={(e) => setTreatedCount(e.target.value)}
+                        required
+                      />
+                      <span className="text-[11px] text-gold-muted mt-1 block">
+                        Partial OK — e.g. 30 of {vinesN || "…"} over a few days.
+                        Grams below = rate × treated today.
+                      </span>
                     </label>
                     <label className="block">
                       <span className="eyebrow mb-1 block">Date</span>
@@ -977,8 +1527,69 @@ export default function FertilizerPage() {
                     </label>
                   </div>
 
+                  {cycleProgress.incomplete && (
+                    <div className="rounded-xl border border-amber-400/45 bg-amber-950/35 px-3 py-3 space-y-2">
+                      <p className="text-sm font-semibold text-amber-100">
+                        Finish the rest of the plants
+                      </p>
+                      <p className="text-sm text-amber-100/95 tabular-nums">
+                        {treatedSoFar}/{cycleProgress.total} vines already got
+                        fertilizer ·{" "}
+                        <strong className="text-amber-200">
+                          {vinesLeft} vines still need it
+                        </strong>
+                      </p>
+                      <p className="text-xs text-gold-muted leading-relaxed">
+                        “Treated today” is set to the remaining {vinesLeft}. Log
+                        another Apply when you fertilize more — a crop todo stays
+                        open until those vines are done.
+                      </p>
+                      <button
+                        type="button"
+                        className="glass-btn gold-btn text-sm"
+                        onClick={() => {
+                          play("click");
+                          setTreatedCount(String(vinesLeft));
+                        }}
+                      >
+                        Treat remaining {vinesLeft} vines
+                      </button>
+                    </div>
+                  )}
+
+                  {!cycleProgress.incomplete &&
+                    (treatedSoFar > 0 || isPartialApply) && (
+                      <div className="rounded-lg border border-amber-400/30 bg-amber-950/20 px-3 py-2 text-sm text-amber-100/95">
+                        {isPartialApply && (
+                          <p className="text-xs text-gold-muted">
+                            This log treats {treatedN}/{vinesN} — a reminder todo
+                            will ask you to finish the rest.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                  <label className="flex items-start gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="accent-[#34d399] mt-0.5"
+                      checked={
+                        markWeekComplete ||
+                        (vinesN > 0 && treatedN >= vinesN)
+                      }
+                      onChange={(e) => setMarkWeekComplete(e.target.checked)}
+                      disabled={vinesN > 0 && treatedN >= vinesN}
+                    />
+                    <span className="text-gold-muted">
+                      Mark this week complete for past-due
+                      {vinesN > 0 && treatedN >= vinesN
+                        ? " (auto — treated ≥ total plants)"
+                        : " (use when the remaining vines are done / skipped)"}
+                    </span>
+                  </label>
+
                   <div className="flex flex-wrap gap-2">
-                    {RESCUE_WEEKS.map((w) => (
+                    {rateWeeks.map((w) => (
                       <button
                         key={w.week}
                         type="button"
@@ -988,17 +1599,123 @@ export default function FertilizerPage() {
                         onClick={() => {
                           play("click");
                           setApplyWeek(w.week);
+                          if (w.week !== 0) setExtraRound(false);
                         }}
                       >
-                        {w.week === 0 ? "Base" : `Week ${w.week}`}
+                        {w.week === 0 ? "Mixtures" : `Week ${w.week}`}
+                        {rateConfig.intervals?.[String(w.week)]
+                          ? ` · ${rateConfig.intervals[String(w.week)]}d`
+                          : ""}
                       </button>
                     ))}
                   </div>
 
+                  {applyWeek === 0 && (
+                    <div className="space-y-3 rounded-xl border border-emerald-400/25 bg-emerald-950/20 p-3">
+                      <p className="text-xs text-emerald-200/90">
+                        {PEPPER_MIXTURE.composition}
+                      </p>
+                      <label className="flex items-start gap-2 text-sm cursor-pointer rounded-lg border border-amber-400/30 bg-amber-950/25 px-3 py-2">
+                        <input
+                          type="checkbox"
+                          className="accent-[#fbbf24] mt-0.5"
+                          checked={extraRound}
+                          onChange={(e) => setExtraRound(e.target.checked)}
+                        />
+                        <span>
+                          <span className="text-amber-200 font-medium">
+                            Extra round
+                          </span>
+                          <span className="block text-xs text-gold-muted mt-0.5 leading-relaxed">
+                            Log an additional Pepper Fertilizer Mixtures application
+                            beyond the usual monsoon cycle. Uses the same age /
+                            monsoon rates (or edit grams below). History is labeled
+                            “Extra round”.
+                          </span>
+                        </span>
+                      </label>
+                      <label className="block">
+                        <span className="eyebrow mb-1 block">Plant age</span>
+                        <select
+                          className="glass-input"
+                          value={plantAge}
+                          onChange={(e) =>
+                            setPlantAge(e.target.value as PlantAge)
+                          }
+                        >
+                          {(Object.keys(PEPPER_MIXTURE.ageLabels) as PlantAge[]).map(
+                            (k) => (
+                              <option key={k} value={k}>
+                                {PEPPER_MIXTURE.ageLabels[k]}
+                              </option>
+                            )
+                          )}
+                        </select>
+                      </label>
+                      <label className="block">
+                        <span className="eyebrow mb-1 block">
+                          {extraRound ? "Rate basis (monsoon table)" : "Monsoon"}
+                        </span>
+                        <select
+                          className="glass-input"
+                          value={monsoon}
+                          onChange={(e) =>
+                            setMonsoon(e.target.value as Monsoon)
+                          }
+                        >
+                          {(
+                            Object.keys(PEPPER_MIXTURE.monsoonLabels) as Monsoon[]
+                          ).map((k) => (
+                            <option key={k} value={k}>
+                              {PEPPER_MIXTURE.monsoonLabels[k]}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="accent-[#34d399]"
+                          checked={halveWithGliricidia}
+                          onChange={(e) =>
+                            setHalveWithGliricidia(e.target.checked)
+                          }
+                        />
+                        <span className="text-gold-muted">
+                          Halve dose (Gliricidia mulch 10–15 kg/vine, 4×/year)
+                        </span>
+                      </label>
+                      <div className="rounded-lg border border-emerald-400/35 bg-emerald-950/35 px-3 py-2.5">
+                        <p className="text-[11px] uppercase tracking-wide text-emerald-200/80 mb-1">
+                          {extraRound ? "Extra round · " : ""}
+                          Total needed this week
+                        </p>
+                        <p className="text-sm text-emerald-100 font-medium leading-snug">
+                          {halveWithGliricidia ? (
+                            <>
+                              {gramsFromConfig(rateConfig, plantAge, monsoon)} →{" "}
+                              {mixturePerPlant} g/plant (halved)
+                            </>
+                          ) : (
+                            <>{mixturePerPlant} g/plant</>
+                          )}
+                        </p>
+                        <p className="text-base text-emerald-200 font-semibold mt-1 tabular-nums">
+                          {fmtScaledDose(
+                            mixturePerPlant,
+                            "g/plant",
+                            vinesN,
+                            vinesN === 1 ? "plant" : "plants"
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
                   {(applyWeek === 2 || applyWeek === 3) && (
                     <label className="block">
                       <span className="eyebrow mb-1 block">
-                        10 L spray tanks
+                        {rateConfig.tankLiters || 10} L spray tanks
                       </span>
                       <input
                         type="number"
@@ -1008,17 +1725,95 @@ export default function FertilizerPage() {
                         value={tankCount}
                         onChange={(e) => setTankCount(e.target.value)}
                       />
+                      <span className="text-[11px] text-gold-muted mt-1 block">
+                        Foliar lines scale by tanks. Vine-based lines (if any)
+                        still use plant count above ({vinesN.toLocaleString()}{" "}
+                        {vinesN === 1 ? "plant" : "plants"}).
+                      </span>
                     </label>
                   )}
 
                   <div className="rounded-xl border border-[var(--glass-border)] bg-black/20 p-3">
                     <p className="font-medium text-gold text-sm">
-                      {activeRescueWeek.title}
+                      {applyWeek === 0 && extraRound
+                        ? `Extra round — ${activeRescueWeek.title}`
+                        : activeRescueWeek.title}
                     </p>
                     <p className="text-xs text-gold-muted mt-1 leading-relaxed">
                       {activeRescueWeek.summary}
                     </p>
                   </div>
+
+                  {applyWeek > 0 && activeRescueWeek.lines.length > 0 && (
+                    <div className="rounded-lg border border-amber-400/30 bg-amber-950/25 px-3 py-2.5 space-y-1.5">
+                      <p className="text-[11px] uppercase tracking-wide text-amber-200/85">
+                        Total needed this week
+                        {vinesN > 0
+                          ? ` · ${vinesN.toLocaleString()} ${
+                              vinesN === 1 ? "plant" : "plants"
+                            }`
+                          : ""}
+                        {(applyWeek === 2 || applyWeek === 3) && tanksN > 0
+                          ? ` · ${tanksN.toLocaleString()} ${
+                              tanksN === 1 ? "tank" : "tanks"
+                            }`
+                          : ""}
+                      </p>
+                      {activeRescueWeek.lines.map((line) => {
+                        if (line.mode === "per_plant") {
+                          const per = line.gramsPerPlant || 0;
+                          return (
+                            <p
+                              key={line.fertilizerName}
+                              className="text-sm text-amber-100/95 tabular-nums leading-snug"
+                            >
+                              <span className="text-gold-muted">
+                                {line.fertilizerName}
+                                {line.optional ? " (opt)" : ""}:{" "}
+                              </span>
+                              {fmtScaledDose(
+                                per,
+                                "g/plant",
+                                vinesN,
+                                vinesN === 1 ? "plant" : "plants"
+                              )}
+                            </p>
+                          );
+                        }
+                        if (line.mode === "per_tank") {
+                          const per = line.gramsPerTank || 0;
+                          return (
+                            <p
+                              key={line.fertilizerName}
+                              className="text-sm text-amber-100/95 tabular-nums leading-snug"
+                            >
+                              <span className="text-gold-muted">
+                                {line.fertilizerName}
+                                {line.optional ? " (opt)" : ""}:{" "}
+                              </span>
+                              {fmtScaledDose(
+                                per,
+                                "g/tank",
+                                tanksN,
+                                tanksN === 1 ? "tank" : "tanks"
+                              )}
+                            </p>
+                          );
+                        }
+                        return (
+                          <p
+                            key={line.fertilizerName}
+                            className="text-sm text-amber-100/95 tabular-nums leading-snug"
+                          >
+                            <span className="text-gold-muted">
+                              {line.fertilizerName}:{" "}
+                            </span>
+                            {fmtGramsTotal(line.gramsFixed || 0)} (fixed)
+                          </p>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {activeRescueWeek.lines.length === 0 ? (
                     <p className="text-sm text-gold-muted">
@@ -1037,6 +1832,31 @@ export default function FertilizerPage() {
                         const needKg = grams / 1000;
                         const short =
                           fert != null && needKg > fert.stock_qty + 1e-9;
+                        const rateHint =
+                          applyWeek === 0
+                            ? fmtScaledDose(
+                                mixturePerPlant,
+                                "g/plant",
+                                treatedN,
+                                treatedN === 1 ? "plant treated" : "plants treated"
+                              )
+                            : line.mode === "per_plant"
+                              ? fmtScaledDose(
+                                  line.gramsPerPlant || 0,
+                                  "g/plant",
+                                  treatedN,
+                                  treatedN === 1
+                                    ? "plant treated"
+                                    : "plants treated"
+                                )
+                              : line.mode === "per_tank"
+                                ? fmtScaledDose(
+                                    line.gramsPerTank || 0,
+                                    "g/tank",
+                                    tanksN,
+                                    tanksN === 1 ? "tank" : "tanks"
+                                  )
+                                : fmtGramsTotal(line.gramsFixed || 0);
                         return (
                           <div
                             key={line.fertilizerName}
@@ -1082,17 +1902,75 @@ export default function FertilizerPage() {
                               />
                               <span className="text-xs text-gold-muted w-8">g</span>
                             </label>
-                            <p className="text-[11px] text-gold-muted mt-1 pl-7">
-                              ≈ {needKg.toFixed(3)} kg
+                            <p className="text-[11px] text-emerald-200/90 mt-1 pl-7 tabular-nums">
+                              Put on plants: {rateHint}
+                            </p>
+                            <p className="text-[11px] text-gold-muted mt-0.5 pl-7">
+                              Logging {fmtGramsTotal(grams)}
                               {fert
                                 ? ` · stock ${fert.stock_qty} ${fert.unit}`
                                 : " · not in inventory — import pack first"}
+                              {fert && Number(fert.unit_price) > 0
+                                ? ` · est. ${lineCostFromGrams(
+                                    grams,
+                                    fert.unit_price,
+                                    fert.unit
+                                  ).toLocaleString()}`
+                                : " · set unit price to log expense"}
                               {line.tip ? ` · ${line.tip}` : ""}
                               {short ? " · SHORT STOCK" : ""}
                             </p>
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+
+                  {applyLivePreview.rows.length > 0 && (
+                    <div className="rounded-xl border border-emerald-400/35 bg-emerald-950/30 px-3 py-3 space-y-2">
+                      <p className="text-[11px] uppercase tracking-wide text-emerald-200/85">
+                        Live — put on plants / dissolve
+                        {treatedN > 0
+                          ? ` · ${treatedN.toLocaleString()} treated today`
+                          : ""}
+                        {isPartialApply ? ` of ${vinesN}` : ""}
+                      </p>
+                      {applyLivePreview.rows.map((r) => (
+                        <p
+                          key={r.name}
+                          className="text-sm text-emerald-100/95 tabular-nums leading-snug"
+                        >
+                          <span className="text-gold-muted">{r.name}: </span>
+                          {r.equation}
+                          {r.hasPrice ? (
+                            <span className="text-amber-200/90">
+                              {" "}
+                              → expense{" "}
+                              <Money value={r.cost} />
+                            </span>
+                          ) : (
+                            <span className="text-gold-muted">
+                              {" "}
+                              → price not set
+                            </span>
+                          )}
+                        </p>
+                      ))}
+                      <p className="text-base font-semibold text-emerald-200 tabular-nums pt-1 border-t border-emerald-400/20">
+                        Total to apply: {fmtGramsTotal(applyLivePreview.totalGrams)}
+                        {applyLivePreview.totalCost > 0 ? (
+                          <>
+                            {" "}
+                            · week expense{" "}
+                            <Money value={applyLivePreview.totalCost} />
+                          </>
+                        ) : applyLivePreview.unpriced > 0 ? (
+                          <span className="text-sm font-normal text-gold-muted">
+                            {" "}
+                            · set prices on Inventory to auto-log expense
+                          </span>
+                        ) : null}
+                      </p>
                     </div>
                   )}
 
@@ -1106,50 +1984,166 @@ export default function FertilizerPage() {
                     {saving
                       ? "Logging…"
                       : applyWeek === 0
-                        ? "Log base pepper fertilizer & update stock"
-                        : `Log week ${applyWeek} & update inventory`}
+                        ? extraRound
+                          ? "Log Extra round, stock & expense"
+                          : "Log Mixtures, stock & expense"
+                        : `Log week ${applyWeek}, stock & expense`}
                   </button>
                 </form>
               </section>
 
               <section className="glass-card space-y-4">
                 <div>
-                  <p className="eyebrow">Live stock</p>
+                  <p className="eyebrow">From plant count</p>
                   <h2 className="font-display text-xl text-gold">
-                    After each apply
+                    How much each week
                   </h2>
+                  <p className="text-sm text-gold-muted mt-2 leading-relaxed">
+                    {applyCrop ? (
+                      <>
+                        For <span className="text-gold">{applyCrop}</span>
+                        {vinesN > 0 ? (
+                          <>
+                            :{" "}
+                            <span className="text-emerald-300 tabular-nums">
+                              {vinesN.toLocaleString()} plants
+                            </span>
+                            {applyCropMeta &&
+                            applyCropMeta.plant_count > 0 &&
+                            applyCropMeta.plant_count === vinesN
+                              ? " (from crop plant count)"
+                              : applyCropMeta && applyCropMeta.plant_count > 0
+                                ? ` (crop has ${applyCropMeta.plant_count}; override above)`
+                                : " (vine count above)"}
+                            . Each line = per-plant (or per-tank) rate × that
+                            count.
+                          </>
+                        ) : (
+                          <> — set vines / plant count above to see totals.</>
+                        )}
+                      </>
+                    ) : (
+                      <>Pick a crop — totals use that crop’s plant count.</>
+                    )}
+                  </p>
                 </div>
-                {fertilizers.length === 0 ? (
-                  <p className="text-gold-muted text-sm">
-                    Import your purchase pack to start tracking.
+
+                {vinesN <= 0 ? (
+                  <p className="text-amber-200/90 text-sm rounded-lg border border-amber-400/30 bg-amber-950/20 px-3 py-2">
+                    Set vines / plant count to see week totals.
                   </p>
                 ) : (
-                  <div className="space-y-2 max-h-[60vh] overflow-y-auto custom-scroll">
-                    {fertilizers.map((f) => (
-                      <div
-                        key={f.id}
-                        className="flex justify-between gap-3 text-sm border-b border-white/10 py-2"
-                      >
-                        <span className="text-gold truncate">{f.name}</span>
-                        <span
-                          className={
-                            f.stock_qty <= 0
-                              ? "text-red-300"
-                              : "text-emerald-300"
-                          }
+                  <div className="space-y-3 max-h-[55vh] overflow-y-auto custom-scroll pr-1">
+                    {scheduleNeedsWithCost.map((block) => {
+                      const selected = applyWeek === block.week;
+                      return (
+                        <button
+                          key={block.week}
+                          type="button"
+                          onClick={() => {
+                            play("click");
+                            setApplyWeek(block.week);
+                            if (block.week !== 0) setExtraRound(false);
+                          }}
+                          className={`w-full text-left rounded-xl border px-3 py-2.5 transition ${
+                            selected
+                              ? "border-emerald-400/45 bg-emerald-950/30"
+                              : "border-white/10 bg-black/20 hover:border-[var(--glass-border)]"
+                          }`}
                         >
-                          {f.stock_qty} {f.unit}
-                        </span>
-                      </div>
-                    ))}
+                          <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <p className="font-medium text-gold text-sm">
+                              {block.week === 0
+                                ? "Mixtures"
+                                : `Week ${block.week}`}
+                              <span className="text-gold-muted font-normal">
+                                {" "}
+                                — {block.title.replace(/^Week \d+ — /, "")}
+                              </span>
+                            </p>
+                            {selected && (
+                              <span className="text-[10px] uppercase tracking-wide text-emerald-300">
+                                selected
+                              </span>
+                            )}
+                          </div>
+                          {block.note && (
+                            <p className="text-[11px] text-gold-muted mb-1.5 leading-snug">
+                              {block.note}
+                            </p>
+                          )}
+                          {block.lines.length === 0 ? (
+                            <p className="text-xs text-gold-muted">
+                              No bag mix this week
+                            </p>
+                          ) : (
+                            <ul className="space-y-1">
+                              {block.lines.map((line) => (
+                                <li
+                                  key={line.fertilizerName}
+                                  className="text-xs tabular-nums leading-snug"
+                                >
+                                  <span className="text-gold-muted">
+                                    {line.fertilizerName}
+                                    {line.optional ? " (opt)" : ""}:{" "}
+                                  </span>
+                                  <span className="text-emerald-200/95">
+                                    {fmtScaledDose(
+                                      line.perUnit,
+                                      line.unitSuffix,
+                                      line.count,
+                                      line.countLabel
+                                    )}
+                                  </span>
+                                  {line.hasPrice && line.estCost > 0 ? (
+                                    <span className="text-amber-200/90">
+                                      {" "}
+                                      · <Money value={line.estCost} />
+                                    </span>
+                                  ) : null}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          {block.weekCost > 0 && (
+                            <p className="text-xs text-amber-200/90 mt-1.5 tabular-nums">
+                              Week total est. <Money value={Number(block.weekCost.toFixed(2))} />
+                            </p>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
-                <p className="text-xs text-gold-muted leading-relaxed">
-                  Long-term: NPK every 6–8 weeks · MgSO₄ every 2–3 weeks · micros
-                  monthly · dolomite every 2–3 months · disease spray as needed.
-                  Seed the schedule template under <strong>Schedules</strong> for
-                  any crop.
-                </p>
+
+                <div className="border-t border-white/10 pt-3">
+                  <p className="eyebrow mb-2">Live stock</p>
+                  {fertilizers.length === 0 ? (
+                    <p className="text-gold-muted text-sm">
+                      Import your purchase pack to start tracking.
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-[28vh] overflow-y-auto custom-scroll">
+                      {fertilizers.map((f) => (
+                        <div
+                          key={f.id}
+                          className="flex justify-between gap-3 text-sm border-b border-white/10 py-1.5"
+                        >
+                          <span className="text-gold truncate">{f.name}</span>
+                          <span
+                            className={
+                              f.stock_qty <= 0
+                                ? "text-red-300"
+                                : "text-emerald-300"
+                            }
+                          >
+                            {f.stock_qty} {f.unit}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </section>
             </div>
           )}
@@ -1168,7 +2162,7 @@ export default function FertilizerPage() {
                     disabled={saving}
                     onClick={() => void importPurchasePack("set")}
                   >
-                    Load purchase pack into stock
+                    Sync inventory from purchases
                   </button>
                 </div>
                 <form onSubmit={saveFertilizer} className="space-y-3">
@@ -1283,7 +2277,7 @@ export default function FertilizerPage() {
                               </span>{" "}
                               {f.unit} ·{" "}
                               <span className="text-white/90">
-                                {f.unit_price.toLocaleString()} / {f.unit}
+                                <Money value={f.unit_price} /> / {f.unit}
                               </span>
                             </p>
                             {f.notes && (
@@ -1293,24 +2287,28 @@ export default function FertilizerPage() {
                             )}
                           </div>
                           <div className="flex flex-wrap gap-1">
-                            <button
-                              type="button"
-                              className="glass-btn text-xs"
-                              onClick={() => startEdit(f)}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              className="glass-btn text-xs"
-                              onClick={() => {
-                                play("click");
-                                setRestockId(f.id);
-                                setRestockAmount("");
-                              }}
-                            >
-                              Restock
-                            </button>
+                            {isAdmin && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="glass-btn text-xs"
+                                  onClick={() => startEdit(f)}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="glass-btn text-xs"
+                                  onClick={() => {
+                                    play("click");
+                                    setRestockId(f.id);
+                                    setRestockAmount("");
+                                  }}
+                                >
+                                  Restock
+                                </button>
+                              </>
+                            )}
                             <button
                               type="button"
                               className="glass-btn text-xs"
@@ -1318,16 +2316,18 @@ export default function FertilizerPage() {
                             >
                               Prices
                             </button>
-                            <button
-                              type="button"
-                              className="glass-btn text-xs text-red-300"
-                              onClick={() => {
-                                play("click");
-                                setConfirmDeleteFert(f.id);
-                              }}
-                            >
-                              Delete
-                            </button>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                className="glass-btn text-xs text-red-300"
+                                onClick={() => {
+                                  play("click");
+                                  setConfirmDeleteFert(f.id);
+                                }}
+                              >
+                                Delete
+                              </button>
+                            )}
                           </div>
                         </div>
                         {restockId === f.id && (
@@ -1373,7 +2373,7 @@ export default function FertilizerPage() {
                               <ul className="space-y-1">
                                 {priceHistory.map((p) => (
                                   <li key={p.id}>
-                                    {p.price.toLocaleString()} —{" "}
+                                    <Money value={p.price} /> —{" "}
                                     {fmtDate(String(p.recorded_at))}
                                   </li>
                                 ))}
@@ -1871,6 +2871,214 @@ export default function FertilizerPage() {
                 )}
               </section>
             </div>
+          )}
+
+          {tab === "rates" && isAdmin && (
+            <section className="glass-card gold-sheen space-y-5 max-w-3xl">
+              <div>
+                <p className="eyebrow">Admin</p>
+                <h2 className="font-display text-xl text-gold">
+                  Edit fertilizer rates
+                </h2>
+                <p className="text-sm text-gold-muted mt-2 leading-relaxed">
+                  Change grams per plant / vine and dissolve amounts per spray
+                  tank when advice updates. Apply week and past-due todos use
+                  these values. Interval days drive missed-apply reminders for
+                  crops with plant count &gt; 1.
+                </p>
+              </div>
+
+              <label className="block max-w-xs">
+                <span className="eyebrow mb-1 block">
+                  Dissolve volume (liters / tank)
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  step="any"
+                  className="glass-input"
+                  value={editingRates.tankLiters}
+                  onChange={(e) =>
+                    setRatesDraft({
+                      ...editingRates,
+                      tankLiters: Number(e.target.value) || 10,
+                    })
+                  }
+                />
+              </label>
+
+              <div className="space-y-3">
+                <p className="eyebrow">Pepper Fertilizer Mixtures (g / plant)</p>
+                {(
+                  Object.keys(PEPPER_MIXTURE.ageLabels) as PlantAge[]
+                ).map((age) => (
+                  <div
+                    key={age}
+                    className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end"
+                  >
+                    <p className="text-sm text-gold-muted sm:col-span-1">
+                      {PEPPER_MIXTURE.ageLabels[age]}
+                    </p>
+                    {(["first", "second"] as Monsoon[]).map((mon) => (
+                      <label key={mon} className="block">
+                        <span className="text-[11px] text-gold-muted">
+                          {PEPPER_MIXTURE.monsoonLabels[mon]}
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          className="glass-input mt-1"
+                          value={editingRates.mixtureRates[age][mon]}
+                          onChange={(e) =>
+                            setRatesDraft({
+                              ...editingRates,
+                              mixtureRates: {
+                                ...editingRates.mixtureRates,
+                                [age]: {
+                                  ...editingRates.mixtureRates[age],
+                                  [mon]: Number(e.target.value) || 0,
+                                },
+                              },
+                            })
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                ))}
+              </div>
+
+              {editingRates.weeks.map((w, wi) => (
+                <div
+                  key={w.week}
+                  className="rounded-xl border border-white/10 bg-black/20 p-3 space-y-3"
+                >
+                  <div className="flex flex-wrap items-end gap-3 justify-between">
+                    <div>
+                      <p className="font-medium text-gold text-sm">
+                        {w.week === 0 ? "Mixtures" : `Week ${w.week}`} — {w.title}
+                      </p>
+                    </div>
+                    <label className="block w-36">
+                      <span className="eyebrow mb-1 block">Interval (days)</span>
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        className="glass-input"
+                        value={editingRates.intervals[String(w.week)] ?? ""}
+                        onChange={(e) =>
+                          setRatesDraft({
+                            ...editingRates,
+                            intervals: {
+                              ...editingRates.intervals,
+                              [String(w.week)]: Math.max(
+                                1,
+                                Math.floor(Number(e.target.value) || 1)
+                              ),
+                            },
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                  {w.lines.length === 0 ? (
+                    <p className="text-xs text-gold-muted">
+                      No bag products (checklist / disease week).
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {w.lines.map((line, li) => (
+                        <div
+                          key={`${w.week}-${line.fertilizerName}`}
+                          className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end"
+                        >
+                          <p className="text-sm text-gold truncate">
+                            {line.fertilizerName}
+                            {line.optional ? " (opt)" : ""}
+                            <span className="block text-[11px] text-gold-muted">
+                              {line.mode === "per_tank"
+                                ? `g / ${editingRates.tankLiters}L tank`
+                                : line.mode === "per_plant"
+                                  ? "g / plant"
+                                  : "g fixed"}
+                            </span>
+                          </p>
+                          <label className="block sm:col-span-2">
+                            <span className="eyebrow mb-1 block">Amount</span>
+                            <input
+                              type="number"
+                              min={0}
+                              step="any"
+                              className="glass-input"
+                              value={
+                                line.mode === "per_tank"
+                                  ? line.gramsPerTank ?? 0
+                                  : line.mode === "fixed"
+                                    ? line.gramsFixed ?? 0
+                                    : line.gramsPerPlant ?? 0
+                              }
+                              onChange={(e) => {
+                                const val = Number(e.target.value) || 0;
+                                const weeks = editingRates.weeks.map((ww, wwi) => {
+                                  if (wwi !== wi) return ww;
+                                  const lines = ww.lines.map((ll, lli) => {
+                                    if (lli !== li) return ll;
+                                    if (ll.mode === "per_tank") {
+                                      return { ...ll, gramsPerTank: val };
+                                    }
+                                    if (ll.mode === "fixed") {
+                                      return { ...ll, gramsFixed: val };
+                                    }
+                                    return { ...ll, gramsPerPlant: val };
+                                  });
+                                  return { ...ww, lines };
+                                });
+                                setRatesDraft({ ...editingRates, weeks });
+                              }}
+                            />
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="glass-btn gold-btn"
+                  disabled={ratesSaving || !ratesDraft}
+                  onClick={() => void saveRateConfig()}
+                >
+                  {ratesSaving ? "Saving…" : "Save rates"}
+                </button>
+                <button
+                  type="button"
+                  className="glass-btn"
+                  disabled={ratesSaving}
+                  onClick={() => {
+                    setRatesDraft(structuredClone(rateConfig));
+                    play("click");
+                  }}
+                >
+                  Reset draft to saved
+                </button>
+                <button
+                  type="button"
+                  className="glass-btn"
+                  disabled={ratesSaving}
+                  onClick={() => {
+                    setRatesDraft(defaultFertilizerRateConfig());
+                    play("click");
+                  }}
+                >
+                  Load defaults
+                </button>
+              </div>
+            </section>
           )}
         </>
       )}

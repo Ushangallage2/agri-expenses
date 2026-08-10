@@ -2,6 +2,8 @@ import type { Handler, HandlerResponse } from "@netlify/functions";
 import pool from "./db";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { ensureUsersRoleColumn } from "./utils/usersDb";
+import { normalizeRole } from "../../src/utils/roles";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 
@@ -58,8 +60,10 @@ export const handler: Handler = async (event) => {
       return response(500, "Server misconfigured (database type)", baseHeaders);
     }
 
+    await ensureUsersRoleColumn();
+
     const res = await pool.query(
-      "SELECT id, username, password FROM users WHERE username = $1",
+      "SELECT id, username, password, role FROM users WHERE username = $1",
       [username]
     );
 
@@ -74,8 +78,10 @@ export const handler: Handler = async (event) => {
       return response(401, "Invalid credentials", baseHeaders);
     }
 
+    const role = normalizeRole(user.role);
+
     const token = jwt.sign(
-      { id: user.id, username: user.username },
+      { id: user.id, username: user.username, role },
       JWT_SECRET,
       { expiresIn: "120m" }
     );
@@ -93,7 +99,11 @@ export const handler: Handler = async (event) => {
 
     return response(
       200,
-      JSON.stringify({ success: true }),
+      JSON.stringify({
+        success: true,
+        username: user.username,
+        role,
+      }),
       {
         ...baseHeaders,
         "Set-Cookie": cookie,

@@ -4,11 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "npx --yes netlify-cli@latest dev",
+    "dev": "node scripts/ensure-netlify-functions-cjs.mjs && npx --yes netlify-cli@latest dev",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "create-admin": "node scripts/create-admin.mjs",
+    "create-observe": "node scripts/create-admin.mjs --username observe --password observe123 --role observe",
     "seed-fertilizer": "node scripts/seed-fertilizer-inventory.mjs",
     "tailwind:init": "tailwindcss init -p",
     "tailwind:build": "tailwindcss -i ./src/index.css -o ./dist/output.css --watch"

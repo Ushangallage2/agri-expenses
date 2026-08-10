@@ -15,21 +15,34 @@ import mysql from "mysql2/promise";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 
+const LEGACY_PEPPER_NAME = "Pepper fertilizer";
+const PEPPER_MIXTURES_NAME = "Pepper Fertilizer Mixtures";
+
+/** Albert covers Fe/B — remove these so they do not clutter inventory. */
+const RETIRED_INVENTORY_NAMES = [
+  "FeSO4",
+  "FeSO₄",
+  "Iron sulfate",
+  "Iron sulphate",
+  "Ferrous sulfate",
+  "Ferrous sulphate",
+  "Borax",
+];
+
 const STARTER_PURCHASE_PACK = [
   {
-    name: "Pepper fertilizer",
+    name: PEPPER_MIXTURES_NAME,
     unit: "kg",
-    stock_qty: 25,
+    stock_qty: 40,
     unit_price: 0,
-    notes:
-      "BASE feed — usual pepper special mix. Apply every 6–8 weeks. Stock: 25 kg remaining.",
+    notes: "N14-P11-K14-Mg2 · monsoon schedule (g/plant). Stock 40 kg.",
   },
   {
     name: "Dolomite",
     unit: "kg",
     stock_qty: 3,
     unit_price: 0,
-    notes: "Bought — 3 kg (soil calcium / pH)",
+    notes: "Bought — 3 kg",
   },
   {
     name: "Superphosphate",
@@ -43,14 +56,14 @@ const STARTER_PURCHASE_PACK = [
     unit: "kg",
     stock_qty: 2,
     unit_price: 0,
-    notes: "Bought — 2 kg (prefer root drench)",
+    notes: "Bought — 2 kg",
   },
   {
     name: "Sulfate of Potash (SOP)",
     unit: "kg",
     stock_qty: 2,
     unit_price: 0,
-    notes: "Bought — 2 kg (use SOP, avoid MOP)",
+    notes: "Bought — 2 kg",
   },
   {
     name: "NPK 19:19:19",
@@ -71,35 +84,22 @@ const STARTER_PURCHASE_PACK = [
     unit: "kg",
     stock_qty: 2,
     unit_price: 0,
-    notes: "Bought — 2 kg",
+    notes:
+      "Bought — 2 kg. Water-soluble balanced fertilizer (~N 10.5%, P₂O₅ 9%, K₂O 16%, Ca ~10%, Mg ~1–2%) with micros (Fe, Mn, Zn, Cu, B). Covers Fe/B — no separate FeSO₄/Borax stock.",
   },
   {
     name: "MgSO4 (Epsom salt)",
     unit: "kg",
-    stock_qty: 0,
+    stock_qty: 5,
     unit_price: 0,
-    notes: "Foliar: 150 g / 10 L — restock when bought",
+    notes: "Bought — 5 kg. Foliar: 150 g / 10 L",
   },
   {
     name: "ZnSO4",
     unit: "kg",
     stock_qty: 0,
     unit_price: 0,
-    notes: "Micronutrient foliar: 5 g / 10 L",
-  },
-  {
-    name: "FeSO4",
-    unit: "kg",
-    stock_qty: 0,
-    unit_price: 0,
-    notes: "Micronutrient foliar: 5 g / 10 L",
-  },
-  {
-    name: "Borax",
-    unit: "kg",
-    stock_qty: 0,
-    unit_price: 0,
-    notes: "Micronutrient foliar: 1 g / 10 L",
+    notes: "Micronutrient foliar: 5 g / 10 L (Zn boost; Albert covers Fe/B)",
   },
 ];
 
@@ -139,6 +139,108 @@ function parseDatabaseUrl(url) {
   };
 }
 
+async function migrateLegacyPepperName(conn) {
+  const [oldRows] = await conn.execute(
+    "SELECT id FROM fertilizers WHERE name = ?",
+    [LEGACY_PEPPER_NAME]
+  );
+  if (!oldRows.length) return;
+
+  const [newRows] = await conn.execute(
+    "SELECT id FROM fertilizers WHERE name = ?",
+    [PEPPER_MIXTURES_NAME]
+  );
+
+  if (!newRows.length) {
+    await conn.execute("UPDATE fertilizers SET name = ? WHERE id = ?", [
+      PEPPER_MIXTURES_NAME,
+      oldRows[0].id,
+    ]);
+    console.log(`  renamed  ${LEGACY_PEPPER_NAME} → ${PEPPER_MIXTURES_NAME}`);
+    return;
+  }
+
+  const oldId = oldRows[0].id;
+  const newId = newRows[0].id;
+  try {
+    await conn.execute(
+      "UPDATE fertilizer_applications SET fertilizer_id = ? WHERE fertilizer_id = ?",
+      [newId, oldId]
+    );
+  } catch {
+    /* table may not exist yet */
+  }
+  try {
+    await conn.execute(
+      "UPDATE fertilizer_schedule_steps SET suggested_fertilizer_id = ? WHERE suggested_fertilizer_id = ?",
+      [newId, oldId]
+    );
+  } catch {
+    /* ignore */
+  }
+  try {
+    await conn.execute(
+      "DELETE FROM fertilizer_price_history WHERE fertilizer_id = ?",
+      [oldId]
+    );
+  } catch {
+    /* ignore */
+  }
+  await conn.execute("DELETE FROM fertilizers WHERE id = ?", [oldId]);
+  console.log(
+    `  merged   ${LEGACY_PEPPER_NAME} into ${PEPPER_MIXTURES_NAME} (removed duplicate)`
+  );
+}
+
+async function retireObsoleteInventory(conn) {
+  if (!RETIRED_INVENTORY_NAMES.length) return;
+  const placeholders = RETIRED_INVENTORY_NAMES.map(() => "?").join(", ");
+  const [rows] = await conn.execute(
+    `SELECT id, name FROM fertilizers WHERE name IN (${placeholders})`,
+    RETIRED_INVENTORY_NAMES
+  );
+
+  for (const row of rows) {
+    const id = row.id;
+    try {
+      await conn.execute(
+        "UPDATE fertilizer_schedule_steps SET suggested_fertilizer_id = NULL WHERE suggested_fertilizer_id = ?",
+        [id]
+      );
+    } catch {
+      /* ignore */
+    }
+    try {
+      await conn.execute(
+        "DELETE FROM fertilizer_price_history WHERE fertilizer_id = ?",
+        [id]
+      );
+    } catch {
+      /* ignore */
+    }
+    await conn.execute("DELETE FROM fertilizers WHERE id = ?", [id]);
+    console.log(`  retired  ${row.name} (Albert covers Fe/B micros)`);
+  }
+}
+
+async function syncWeek3MicronutrientInstructions(conn) {
+  const instructions =
+    "Per 10 L: ZnSO₄ 5 g + Albert solution 5 g (covers Fe, B & other micros) + Teepol/Sandovit 2–5 mL. " +
+    "No separate FeSO₄/Borax — Albert provides Fe/B. Dissolve separately, then combine. Spray AM/PM only.";
+  try {
+    const [result] = await conn.execute(
+      `UPDATE fertilizer_schedule_steps
+       SET instructions = ?, suggested_amount = ?, unit = ?
+       WHERE week_number = 3 AND title LIKE ?`,
+      [instructions, 10, "g/10L", "%micronutrient%"]
+    );
+    const n = result?.affectedRows || 0;
+    if (n) console.log(`  synced   week-3 micronutrient instructions (${n} step(s))`);
+  } catch {
+    /* schedule tables may not exist yet */
+  }
+}
+
 async function main() {
   loadEnvFile();
   const mode = process.argv.includes("--mode")
@@ -167,6 +269,9 @@ async function main() {
     `);
 
     console.log(`Seeding fertilizer inventory (mode=${mode})…\n`);
+    await migrateLegacyPepperName(conn);
+    await retireObsoleteInventory(conn);
+    await syncWeek3MicronutrientInstructions(conn);
 
     for (const item of STARTER_PURCHASE_PACK) {
       const [rows] = await conn.execute(
@@ -185,19 +290,24 @@ async function main() {
           "UPDATE fertilizers SET stock_qty = ?, unit = ?, notes = ? WHERE id = ?",
           [next, item.unit, item.notes, id]
         );
-        console.log(`  updated  ${item.name.padEnd(28)} → ${next} ${item.unit}`);
+        console.log(`  updated  ${item.name.padEnd(32)} → ${next} ${item.unit}`);
       } else {
         await conn.execute(
           "INSERT INTO fertilizers (name, unit, stock_qty, unit_price, notes) VALUES (?, ?, ?, ?, ?)",
           [item.name, item.unit, item.stock_qty, item.unit_price, item.notes]
         );
         console.log(
-          `  created  ${item.name.padEnd(28)} → ${item.stock_qty} ${item.unit}`
+          `  created  ${item.name.padEnd(32)} → ${item.stock_qty} ${item.unit}`
         );
       }
     }
 
-    console.log("\nDone. Inventory matches your purchase note + 25 kg pepper fertilizer.");
+    console.log(
+      "\nDone. Inventory matches purchase pack + 40 kg Pepper Fertilizer Mixtures + 5 kg MgSO4."
+    );
+    console.log(
+      "FeSO₄ / Borax removed (Albert solution covers Fe, B, and other micros)."
+    );
   } finally {
     await conn.end();
   }

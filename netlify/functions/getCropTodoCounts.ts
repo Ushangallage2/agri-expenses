@@ -2,6 +2,7 @@ import type { Handler } from "@netlify/functions";
 import pool from "./db";
 import jwt from "jsonwebtoken";
 import { ensureCropNotesTable } from "./utils/cropNotesDb";
+import { syncFertilizerDueTodos } from "./utils/fertilizerDueTodos";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 
@@ -12,6 +13,12 @@ export const handler: Handler = async (event) => {
     jwt.verify(token, JWT_SECRET);
 
     await ensureCropNotesTable();
+
+    try {
+      await syncFertilizerDueTodos();
+    } catch (syncErr) {
+      console.error("fertilizer due sync:", syncErr);
+    }
 
     const res = await pool.query(
       `SELECT crop_name, COUNT(*) AS open_todos

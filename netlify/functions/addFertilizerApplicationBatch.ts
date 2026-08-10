@@ -1,12 +1,16 @@
 import type { Handler, HandlerContext } from "@netlify/functions";
 import pool from "./db";
-import { requireAuth } from "../../src/utils/requireAuth";
+import { requireAdmin } from "../../src/utils/requireAuth";
 import {
   ensureFertilizerTables,
   mapApplication,
   toNum,
 } from "./utils/fertilizerDb";
 import { toStockAmount } from "./utils/fertilizerRecipes";
+import {
+  completeFertilizerDueTodo,
+  noteFertilizerDueProgress,
+} from "./utils/fertilizerDueTodos";
 
 type LineIn = {
   fertilizerId?: number;
@@ -27,6 +31,22 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
   const cropName = String(body.cropName ?? body.crop_name ?? "").trim();
   const lines = (Array.isArray(body.lines) ? body.lines : []) as LineIn[];
   const weekLabel = body.weekLabel != null ? String(body.weekLabel) : "";
+  const weekNumberRaw = body.weekNumber ?? body.week_number;
+  const weekNumber =
+    weekNumberRaw != null && Number.isFinite(Number(weekNumberRaw))
+      ? Math.floor(Number(weekNumberRaw))
+      : null;
+  const treatedPlants = Math.max(
+    0,
+    Math.floor(Number(body.treatedPlants ?? body.treated_plants) || 0)
+  );
+  const totalPlants = Math.max(
+    0,
+    Math.floor(Number(body.totalPlants ?? body.total_plants) || 0)
+  );
+  const markWeekComplete = Boolean(
+    body.markWeekComplete ?? body.mark_week_complete
+  );
   const appliedRaw = String(body.appliedAt ?? body.applied_at ?? "").trim();
 
   let appliedAt: string | null = null;
@@ -67,9 +87,11 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
       name: string;
       stockUnit: string;
       stock: number;
+      unitPrice: number;
       usageAmount: number;
       usageUnit: string;
       deduct: number;
+      lineCost: number;
       notes: string | null;
     }[] = [];
 
@@ -85,13 +107,13 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
 
       if (Number.isFinite(fid) && fid > 0) {
         const r = await pool.query(
-          `SELECT id, name, unit, stock_qty FROM fertilizers WHERE id = $1`,
+          `SELECT id, name, unit, stock_qty, unit_price FROM fertilizers WHERE id = $1`,
           [fid]
         );
         fertRow = r.rows[0];
       } else if (fname) {
         const r = await pool.query(
-          `SELECT id, name, unit, stock_qty FROM fertilizers WHERE name = $1`,
+          `SELECT id, name, unit, stock_qty, unit_price FROM fertilizers WHERE name = $1`,
           [fname]
         );
         fertRow = r.rows[0];
@@ -110,6 +132,9 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
       const usageUnit = String(line.unit || "g").trim() || "g";
       const deduct = toStockAmount(amount, usageUnit, stockUnit);
       const stock = toNum(fertRow.stock_qty);
+      const unitPrice = toNum(fertRow.unit_price);
+      const lineCost =
+        unitPrice > 0 ? Number((deduct * unitPrice).toFixed(2)) : 0;
 
       if (deduct > stock + 1e-9) {
         return {
@@ -123,20 +148,27 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
         };
       }
 
+      const weekTag =
+        weekNumber != null ? `[week:${weekNumber}]` : "";
+      const baseNotes =
+        line.notes != null && String(line.notes).trim()
+          ? String(line.notes).trim()
+          : weekLabel
+            ? weekLabel
+            : "";
+      const notes = [weekTag, baseNotes].filter(Boolean).join(" ").trim() || null;
+
       resolved.push({
         fertilizerId: Number(fertRow.id),
         name: String(fertRow.name),
         stockUnit,
         stock,
+        unitPrice,
         usageAmount: amount,
         usageUnit,
         deduct,
-        notes:
-          line.notes != null && String(line.notes).trim()
-            ? String(line.notes).trim()
-            : weekLabel
-              ? weekLabel
-              : null,
+        lineCost,
+        notes,
       });
     }
 
@@ -194,11 +226,87 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
        FROM fertilizers ORDER BY name ASC`
     );
 
+    if (weekNumber != null) {
+      try {
+        const finishes =
+          markWeekComplete ||
+          (totalPlants > 0 && treatedPlants >= totalPlants);
+        if (finishes) {
+          await completeFertilizerDueTodo(cropName, weekNumber);
+        } else if (treatedPlants > 0) {
+          await noteFertilizerDueProgress(
+            cropName,
+            weekNumber,
+            treatedPlants,
+            totalPlants,
+            weekLabel
+          );
+        }
+      } catch (e) {
+        console.error("fertilizer due after apply:", e);
+      }
+    }
+
+    // Ledger expense for this week (prices × stock used). Negative = expense.
+    let expenseLogged: {
+      amount: number;
+      reason: string;
+      pricedLines: number;
+      skippedNoPrice: string[];
+    } | null = null;
+
+    const priced = resolved.filter((r) => r.lineCost > 0);
+    const skippedNoPrice = resolved
+      .filter((r) => !(r.unitPrice > 0))
+      .map((r) => r.name);
+    const totalCost = Number(
+      priced.reduce((s, r) => s + r.lineCost, 0).toFixed(2)
+    );
+
+    if (totalCost > 0 && createdBy) {
+      const weekPart =
+        weekLabel ||
+        (weekNumber === 0
+          ? "Pepper Fertilizer Mixtures"
+          : weekNumber != null
+            ? `Week ${weekNumber}`
+            : "Fertilizer apply");
+      const breakdown = priced
+        .map(
+          (r) =>
+            `${r.name} ${r.deduct.toFixed(3)} ${r.stockUnit} @ ${r.unitPrice}=${r.lineCost}`
+        )
+        .join("; ");
+      const reason = `Fertilizer · ${weekPart} · ${breakdown}`.slice(0, 480);
+      const dateOnly = appliedAt.slice(0, 10);
+
+      await pool.query(
+        `INSERT INTO expenses (expender, reason, amount, crop, created_at)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [createdBy, reason, -totalCost, cropName, `${dateOnly} 12:00:00`]
+      );
+
+      expenseLogged = {
+        amount: -totalCost,
+        reason,
+        pricedLines: priced.length,
+        skippedNoPrice,
+      };
+    } else if (resolved.length && skippedNoPrice.length === resolved.length) {
+      expenseLogged = {
+        amount: 0,
+        reason: "",
+        pricedLines: 0,
+        skippedNoPrice,
+      };
+    }
+
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         applications,
+        expense: expenseLogged,
         fertilizers: stockRows.rows.map((r) => ({
           id: Number(r.id),
           name: String(r.name),
@@ -219,4 +327,4 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
   }
 };
 
-export const handler = requireAuth(baseHandler);
+export const handler = requireAdmin(baseHandler);

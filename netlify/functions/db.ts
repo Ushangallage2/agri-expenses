@@ -39,11 +39,13 @@ function toMysql(sql: string) {
 
 async function query(sql: string, params: ExecuteValues[] = []) {
   const text = toMysql(sql.trim());
-  const returningMatch = text.match(/\sRETURNING\s+(.+)$/i);
+  // MySQL has no RETURNING — shim INSERT … RETURNING into INSERT + SELECT by id.
+  // Use [\s\S] so multiline RETURNING column lists (common in fertilizer inserts) match.
+  const returningMatch = text.match(/\sRETURNING\s+([\s\S]+)$/i);
 
   if (returningMatch && /^INSERT\s+INTO/i.test(text)) {
-    const cols = returningMatch[1];
-    const insertSql = text.replace(/\sRETURNING\s+.+$/i, "");
+    const cols = returningMatch[1].replace(/\s+/g, " ").trim();
+    const insertSql = text.replace(/\sRETURNING\s+[\s\S]+$/i, "").trim();
     const tableMatch = insertSql.match(/INSERT\s+INTO\s+(\w+)/i);
     if (!tableMatch) throw new Error("Could not parse INSERT table name");
 

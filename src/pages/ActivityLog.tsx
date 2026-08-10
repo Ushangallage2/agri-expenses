@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { API } from "../utils/api";
 import SoundToggle from "../components/SoundToggle";
+import Money from "../components/Money";
+import { useAuth } from "../utils/AuthContext";
 import { sortExpensesByDate } from "../utils/sortExpenses";
 
 type Entry = {
@@ -15,6 +17,7 @@ type Entry = {
 
 export default function ActivityLog() {
   const navigate = useNavigate();
+  const { isObserve } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const userFilter = searchParams.get("user") || "all";
   const typeFilter = searchParams.get("type") || "all";
@@ -99,6 +102,12 @@ export default function ActivityLog() {
         <SoundToggle />
       </header>
 
+      {isObserve && (
+        <div className="observe-banner mb-4">
+          Observe mode — amounts are blurred for safe demos.
+        </div>
+      )}
+
       <div className="glass-card mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <label className="block text-sm">
           <span className="eyebrow mb-2 block">User</span>
@@ -132,13 +141,13 @@ export default function ActivityLog() {
             {totals.count} entries
           </div>
           <div className="stat-pill !text-xs !px-3 !py-2 text-emerald-300">
-            +{totals.income.toLocaleString()}
+            +<Money value={totals.income} />
           </div>
           <div className="stat-pill !text-xs !px-3 !py-2 text-red-300">
-            −{totals.expense.toLocaleString()}
+            −<Money value={totals.expense} />
           </div>
           <div className="stat-pill !text-xs !px-3 !py-2 text-gold">
-            profit {totals.profit.toLocaleString()}
+            profit <Money value={totals.profit} />
           </div>
         </div>
       </div>
@@ -206,7 +215,7 @@ export default function ActivityLog() {
                         }`}
                       >
                         {isIncome ? "+" : "−"}
-                        {Math.abs(e.amount).toLocaleString()}
+                        <Money value={Math.abs(e.amount)} />
                       </td>
                     </tr>
                   );

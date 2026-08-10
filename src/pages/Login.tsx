@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { API } from "../utils/api";
+import { useAuth } from "../utils/AuthContext";
 import { play, unlockAudio } from "../utils/sounds";
 import SoundToggle from "../components/SoundToggle";
 
@@ -10,6 +11,7 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { refresh } = useAuth();
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -34,6 +36,7 @@ export default function Login() {
         return;
       }
 
+      await refresh();
       play("success");
       navigate("/dashboard");
     } catch {

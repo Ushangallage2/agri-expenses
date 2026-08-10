@@ -1,6 +1,6 @@
 import { Handler } from "@netlify/functions";
 import pool from "./db";
-import { requireAuth } from "../../src/utils/requireAuth";
+import { requireAdmin } from "../../src/utils/requireAuth";
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -36,4 +36,4 @@ const baseHandler: Handler = async (event) => {
   }
 };
 
-export const handler = requireAuth(baseHandler);
+export const handler = requireAdmin(baseHandler);

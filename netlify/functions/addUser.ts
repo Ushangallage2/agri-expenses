@@ -1,29 +1,34 @@
 import { Handler } from "@netlify/functions";
 import pool from "./db";
 import bcrypt from "bcryptjs";
-import { requireAuth } from "../../src/utils/requireAuth";
+import { requireAdmin } from "../../src/utils/requireAuth";
+import { ensureUsersRoleColumn } from "./utils/usersDb";
+import { normalizeRole } from "../../src/utils/roles";
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
 
-  const { username, password } = JSON.parse(event.body || "{}");
+  const { username, password, role } = JSON.parse(event.body || "{}");
 
   if (!username || !password) {
     return { statusCode: 400, body: "Username and password required" };
   }
 
+  const userRole = normalizeRole(role);
+
   try {
+    await ensureUsersRoleColumn();
     const hash = await bcrypt.hash(password, 10);
 
     const res = await pool.query(
       `
-      INSERT INTO users (username, password)
-      VALUES ($1, $2)
-      RETURNING id, username
+      INSERT INTO users (username, password, role)
+      VALUES ($1, $2, $3)
+      RETURNING id, username, role
       `,
-      [username, hash]
+      [username, hash, userRole]
     );
 
     return {
@@ -39,4 +44,4 @@ const baseHandler: Handler = async (event) => {
   }
 };
 
-export const handler = requireAuth(baseHandler);
+export const handler = requireAdmin(baseHandler);

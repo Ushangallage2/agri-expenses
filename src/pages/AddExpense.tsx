@@ -4,6 +4,8 @@ import { API } from "../utils/api";
 import { play, unlockAudio } from "../utils/sounds";
 import SoundToggle from "../components/SoundToggle";
 import ConfirmModal from "../components/ConfirmModal";
+import { useAuth } from "../utils/AuthContext";
+import type { UserRole } from "../utils/roles";
 
 type DeleteTarget =
   | { kind: "user"; value: string }
@@ -16,8 +18,11 @@ export default function AddExpense() {
   const [reason, setReason] = useState("");
   const [amount, setAmount] = useState("");
   const [crop, setCrop] = useState("");
-  const [users, setUsers] = useState<string[]>([]);
+  const [accounts, setAccounts] = useState<
+    { username: string; role: UserRole }[]
+  >([]);
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState<UserRole>("admin");
   const [reasons, setReasons] = useState<string[]>([]);
   const [savedAmounts, setSavedAmounts] = useState<number[]>([]);
   const [crops, setCrops] = useState<string[]>([]);
@@ -30,12 +35,32 @@ export default function AddExpense() {
   const [toDelete, setToDelete] = useState<DeleteTarget>(null);
 
   const navigate = useNavigate();
+  const { isAdmin, loading: authLoading } = useAuth();
   const [searchParams] = useSearchParams();
   const type = searchParams.get("type") || "expense";
 
+  useEffect(() => {
+    if (!authLoading && !isAdmin) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [authLoading, isAdmin, navigate]);
+
   async function loadUsers() {
-    const r = await fetch(`${API}/getUsers`, { credentials: "include" });
-    if (r.ok) setUsers(await r.json());
+    const r = await fetch(`${API}/getUsers?all=1`, { credentials: "include" });
+    if (!r.ok) return;
+    const data = await r.json();
+    if (Array.isArray(data) && data.length && typeof data[0] === "object") {
+      setAccounts(
+        data.map((a: { username: string; role?: string }) => ({
+          username: a.username,
+          role: a.role === "observe" ? "observe" : "admin",
+        }))
+      );
+    } else if (Array.isArray(data)) {
+      setAccounts(
+        data.map((username: string) => ({ username, role: "admin" as const }))
+      );
+    }
   }
 
   async function loadReasons() {
@@ -122,7 +147,7 @@ export default function AddExpense() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ username: user, password }),
+          body: JSON.stringify({ username: user, password, role }),
         });
       } else if (type === "reason") {
         res = await fetch(`${API}/addReason`, {
@@ -154,7 +179,19 @@ export default function AddExpense() {
       }
 
       play("save");
-      setStatus({ type: "success", message: "Saved successfully" });
+      const okMsg =
+        type === "user" && role === "observe"
+          ? "Observe login created (not a ledger person — won’t appear on counters)"
+          : "Saved successfully";
+      setStatus({ type: "success", message: okMsg });
+      if (type === "user") {
+        setUser("");
+        setPassword("");
+        setRole("admin");
+        await loadUsers();
+        setLoading(false);
+        return;
+      }
       setTimeout(() => navigate("/dashboard"), 800);
     } catch (err: any) {
       play("error");
@@ -171,12 +208,16 @@ export default function AddExpense() {
 
   const list =
     type === "user"
-      ? users
+      ? accounts.map((a) => a.username)
       : type === "reason"
         ? reasons
         : type === "amount"
           ? savedAmounts
           : crops;
+
+  const accountByName = Object.fromEntries(
+    accounts.map((a) => [a.username, a.role])
+  );
 
   const canDeleteItem = type === "user" || type === "crop" || type === "reason";
 
@@ -209,7 +250,7 @@ export default function AddExpense() {
           ← Back
         </button>
         <h2 className="font-display text-2xl text-center text-gold capitalize">
-          Add {type}
+          {type === "user" ? "Add login account" : `Add ${type}`}
         </h2>
         <div className="text-right flex justify-end gap-2">
           <SoundToggle />
@@ -249,6 +290,27 @@ export default function AddExpense() {
               onChange={(e) => setPassword(e.target.value)}
               required
             />
+            <label className="block mb-3">
+              <span className="eyebrow mb-1 block">Role</span>
+              <select
+                className="glass-input"
+                value={role}
+                onChange={(e) => setRole(e.target.value as UserRole)}
+              >
+                <option value="admin">
+                  Admin — full access + ledger person
+                </option>
+                <option value="observe">
+                  Observe — login only (demo; not a ledger person)
+                </option>
+              </select>
+            </label>
+            {role === "observe" && (
+              <p className="text-xs text-gold-muted mb-3">
+                Observe accounts can sign in to showcase the app. They do not
+                get a spending counter or appear as an expender.
+              </p>
+            )}
           </>
         )}
 
@@ -288,7 +350,9 @@ export default function AddExpense() {
         </button>
 
         <div className="border-t border-[var(--glass-border)] pt-3">
-          <p className="text-sm text-gold-muted mb-2">Existing {type}s</p>
+          <p className="text-sm text-gold-muted mb-2">
+            {type === "user" ? "Login accounts" : `Existing ${type}s`}
+          </p>
           <div className="max-h-48 overflow-y-auto text-sm space-y-1 custom-scroll">
             {list.map((v, i) => (
               <div
@@ -306,6 +370,17 @@ export default function AddExpense() {
                   >
                     • {String(v)} →
                   </button>
+                ) : type === "user" ? (
+                  <span className="opacity-90 truncate">
+                    • {String(v)}
+                    {accountByName[String(v)] === "observe" ? (
+                      <span className="text-amber-300/90 text-xs ml-2">
+                        observe · login only
+                      </span>
+                    ) : (
+                      <span className="text-gold-muted text-xs ml-2">admin</span>
+                    )}
+                  </span>
                 ) : (
                   <span className="opacity-90 truncate">• {String(v)}</span>
                 )}

@@ -11,6 +11,8 @@ import type { EditableExpense } from "../components/EditRecordModal";
 import { play, unlockAudio } from "../utils/sounds";
 import { sortExpensesByDate } from "../utils/sortExpenses";
 import { compressImageFile } from "../utils/imageCompress";
+import { useAuth } from "../utils/AuthContext";
+import Money, { MoneyShield } from "../components/Money";
 
 
 
@@ -110,7 +112,7 @@ function CounterCard({
             className="font-extrabold select-none text-gold glow-text"
             style={{ fontSize: `${fontSize}px`, lineHeight: 1 }}
           >
-            {formatted}
+            <Money value={profit} />
           </span>
           {isHero && (
             <span className="text-[9px] uppercase tracking-widest text-gold-muted mt-1">
@@ -146,8 +148,12 @@ function CounterCard({
           {onClick ? " →" : ""}
         </div>
         <div className="mt-1 flex flex-wrap justify-center gap-1">
-          <span className="stat-pill text-emerald-300/90">+{income.toLocaleString()}</span>
-          <span className="stat-pill text-red-300/90">−{expense.toLocaleString()}</span>
+          <span className="stat-pill text-emerald-300/90">
+            +<Money value={income} />
+          </span>
+          <span className="stat-pill text-red-300/90">
+            −<Money value={expense} />
+          </span>
         </div>
       </div>
     </>
@@ -645,6 +651,7 @@ type ExpenseTableProps = {
   expenses: Expense[];
   crops: Crop[];
   amounts?: number[];
+  canEdit?: boolean;
   onDelete: (id: string) => void;
   onEdit: (record: Expense) => void;
   onReorder: (id: string, beforeId: string | null, afterId: string | null) => Promise<void>;
@@ -653,6 +660,7 @@ type ExpenseTableProps = {
 
 function ExpenseTable({
   expenses,
+  canEdit = true,
   onDelete,
   onEdit,
   onReorder,
@@ -819,7 +827,7 @@ function ExpenseTable({
                     )}
                   </td>
                   <td className={`p-3 text-right pr-4 font-medium ${e.amount < 0 ? "text-red-400" : "text-green-400"}`}>
-                    {e.amount.toLocaleString()}
+                    <Money value={e.amount} />
                   </td>
                   <td className="p-3 text-right pr-2 opacity-70 hidden md:table-cell">
                     {new Date(e.created_at).toLocaleDateString()}
@@ -842,26 +850,30 @@ function ExpenseTable({
                     )}
                   </td>
                   <td className="p-3 text-right pr-3">
-                    <div className="inline-flex items-center gap-1.5 justify-end">
-                      <button
-                        type="button"
-                        onClick={() => onEdit(e)}
-                        className="text-gold hover:text-[var(--gold-bright)] transition text-sm px-1"
-                        title="Edit record"
-                        aria-label="Edit record"
-                      >
-                        ✎
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteId(e.id)}
-                        className="text-red-400 hover:text-red-300 transition text-lg"
-                        title="Delete record"
-                        aria-label="Delete record"
-                      >
-                        ✖
-                      </button>
-                    </div>
+                    {canEdit ? (
+                      <div className="inline-flex items-center gap-1.5 justify-end">
+                        <button
+                          type="button"
+                          onClick={() => onEdit(e)}
+                          className="text-gold hover:text-[var(--gold-bright)] transition text-sm px-1"
+                          title="Edit record"
+                          aria-label="Edit record"
+                        >
+                          ✎
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteId(e.id)}
+                          className="text-red-400 hover:text-red-300 transition text-lg"
+                          title="Delete record"
+                          aria-label="Delete record"
+                        >
+                          ✖
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-gold-muted/40 text-xs">view</span>
+                    )}
                   </td>
                 </tr>
               );
@@ -1026,6 +1038,7 @@ function ExpenseTable({
 /* ======================= DASHBOARD ======================= */
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { isAdmin, isObserve, clear } = useAuth();
   const [users, setUsers] = useState<string[]>([]);
   const [reasons, setReasons] = useState<string[]>([]);
   const [crops, setCrops] = useState<Crop[]>([]);
@@ -1228,6 +1241,7 @@ async function logout() {
     method: "POST",
     credentials: "include",
   });
+  clear();
   navigate("/login");
 }
 
@@ -1269,24 +1283,30 @@ const ledger = splitTotals(expenses);
           <button className="glass-btn" onClick={() => navigate("/activity")}>
             Backlog
           </button>
-          <button className="glass-btn" onClick={() => navigate("/email-reports")}>
-            Email reports
-          </button>
+          {isAdmin && (
+            <button className="glass-btn" onClick={() => navigate("/email-reports")}>
+              Email reports
+            </button>
+          )}
           <button className="glass-btn" onClick={() => navigate("/fertilizer")}>
             Fertilizer
           </button>
-          <button className="glass-btn" onClick={() => navigate("/add-expense?type=user")}>
-            + User
-          </button>
-          <button className="glass-btn" onClick={() => navigate("/add-expense?type=reason")}>
-            + Reason
-          </button>
-          <button className="glass-btn" onClick={() => navigate("/add-expense?type=crop")}>
-            + Crop
-          </button>
-          <button className="glass-btn" onClick={() => navigate("/add-expense?type=amount")}>
-            + Amount
-          </button>
+          {isAdmin && (
+            <>
+              <button className="glass-btn" onClick={() => navigate("/add-expense?type=user")}>
+                + User
+              </button>
+              <button className="glass-btn" onClick={() => navigate("/add-expense?type=reason")}>
+                + Reason
+              </button>
+              <button className="glass-btn" onClick={() => navigate("/add-expense?type=crop")}>
+                + Crop
+              </button>
+              <button className="glass-btn" onClick={() => navigate("/add-expense?type=amount")}>
+                + Amount
+              </button>
+            </>
+          )}
           <SoundToggle />
           <button className="glass-btn text-red-400" onClick={logout}>
             Logout
@@ -1294,24 +1314,30 @@ const ledger = splitTotals(expenses);
         </div>
       </header>
 
+      {isObserve && (
+        <div className="observe-banner mb-4">
+          Observe mode — spending totals are blurred. View-only; no edits or money actions.
+        </div>
+      )}
+
       {/* Summary: Income / Expense / Profit kept separate */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <div className="glass-card gold-sheen text-center py-6">
           <p className="eyebrow">Total income</p>
           <p className="font-display text-3xl text-emerald-300">
-            {ledger.income.toLocaleString()}
+            <Money value={ledger.income} />
           </p>
         </div>
         <div className="glass-card text-center py-6">
           <p className="eyebrow">Total expenses</p>
           <p className="font-display text-3xl text-red-300">
-            {ledger.expense.toLocaleString()}
+            <Money value={ledger.expense} />
           </p>
         </div>
         <div className="glass-card text-center py-6">
           <p className="eyebrow">Final profit</p>
           <p className={`font-display text-3xl glow-text ${ledger.profit >= 0 ? "text-gold" : "text-red-300"}`}>
-            {ledger.profit.toLocaleString()}
+            <Money value={ledger.profit} />
           </p>
         </div>
       </div>
@@ -1352,40 +1378,45 @@ const ledger = splitTotals(expenses);
               onClick={() =>
                 navigate(`/activity?user=${encodeURIComponent(u)}`)
               }
-              onDelete={() => setUserToDelete(u)}
+              onDelete={isAdmin ? () => setUserToDelete(u) : undefined}
             />
           );
         })}
       </div>
 
-      <AddRecordForm
-        users={users}
-        reasons={reasons}
-        crops={crops}
-        amounts={amounts}
-        onAdd={addRecord}
-      />
+      {isAdmin && (
+        <AddRecordForm
+          users={users}
+          reasons={reasons}
+          crops={crops}
+          amounts={amounts}
+          onAdd={addRecord}
+        />
+      )}
 
       <ExpenseTable
         expenses={expenses}
         crops={crops}
         amounts={amounts}
+        canEdit={isAdmin}
         onDelete={deleteRecord}
         onEdit={setEditingRecord}
         onReorder={reorderRecord}
         onUpdateCrop={updateCrop}
       />
 
-      <EditRecordModal
-        open={!!editingRecord}
-        record={editingRecord}
-        users={users}
-        reasons={reasons}
-        crops={crops}
-        amounts={amounts}
-        onClose={() => setEditingRecord(null)}
-        onSave={updateRecord}
-      />
+      {isAdmin && (
+        <EditRecordModal
+          open={!!editingRecord}
+          record={editingRecord}
+          users={users}
+          reasons={reasons}
+          crops={crops}
+          amounts={amounts}
+          onClose={() => setEditingRecord(null)}
+          onSave={updateRecord}
+        />
+      )}
 
       <div className="glass-card p-4 mt-4 mb-4 gold-sheen">
         <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
@@ -1401,15 +1432,19 @@ const ledger = splitTotals(expenses);
           <div className="text-right">
             <p className="eyebrow">Overall</p>
             <p className="font-display text-3xl text-emerald-300 glow-text">
-              {overallSpendPerPlant == null
-                ? "—"
-                : overallSpendPerPlant.toLocaleString(undefined, {
+              {overallSpendPerPlant == null ? (
+                "—"
+              ) : (
+                <Money
+                  value={overallSpendPerPlant.toLocaleString(undefined, {
                     maximumFractionDigits: 2,
                   })}
+                />
+              )}
             </p>
             <p className="text-xs text-gold-muted mt-1">
-              {totalPlantSpend.toLocaleString()} spent · {totalPlants.toLocaleString()}{" "}
-              plants
+              <Money value={totalPlantSpend} /> spent ·{" "}
+              {totalPlants.toLocaleString()} plants
             </p>
           </div>
         </div>
@@ -1425,14 +1460,19 @@ const ledger = splitTotals(expenses);
               >
                 <p className="text-sm text-gold truncate font-medium">{k.name}</p>
                 <p className="font-display text-2xl text-emerald-300 mt-1">
-                  {k.perPlant == null
-                    ? "—"
-                    : k.perPlant.toLocaleString(undefined, {
+                  {k.perPlant == null ? (
+                    "—"
+                  ) : (
+                    <Money
+                      value={k.perPlant.toLocaleString(undefined, {
                         maximumFractionDigits: 2,
                       })}
+                    />
+                  )}
                 </p>
                 <p className="text-[11px] text-gold-muted mt-1">
-                  {k.spent.toLocaleString()} spent ÷ {k.plants.toLocaleString()} plants
+                  <Money value={k.spent} /> spent ÷ {k.plants.toLocaleString()}{" "}
+                  plants
                   {k.plants === 0 ? " · set plant count in notes" : ""}
                 </p>
               </div>
@@ -1446,17 +1486,21 @@ const ledger = splitTotals(expenses);
           <h2 className="font-display text-xl text-center text-gold mb-2">
             Cumulative income
           </h2>
-          <div className="w-full" style={{ height: "320px" }}>
-            <ExpenseChart trends={trends} metric="income" />
-          </div>
+          <MoneyShield>
+            <div className="w-full" style={{ height: "320px" }}>
+              <ExpenseChart trends={trends} metric="income" />
+            </div>
+          </MoneyShield>
         </div>
         <div className="glass-card p-4">
           <h2 className="font-display text-xl text-center text-gold mb-2">
             Cumulative expenses
           </h2>
-          <div className="w-full" style={{ height: "320px" }}>
-            <ExpenseChart trends={trends} metric="expense" />
-          </div>
+          <MoneyShield>
+            <div className="w-full" style={{ height: "320px" }}>
+              <ExpenseChart trends={trends} metric="expense" />
+            </div>
+          </MoneyShield>
         </div>
       </div>
 
@@ -1464,9 +1508,11 @@ const ledger = splitTotals(expenses);
         <h2 className="font-display text-xl text-center text-gold mb-2">
           Cumulative profit by crop
         </h2>
-        <div className="w-full" style={{ height: "360px" }}>
-          <ExpenseChart trends={trends} metric="profit" />
-        </div>
+        <MoneyShield>
+          <div className="w-full" style={{ height: "360px" }}>
+            <ExpenseChart trends={trends} metric="profit" />
+          </div>
+        </MoneyShield>
       </div>
 
       <div className="glass-card p-4 mt-4">

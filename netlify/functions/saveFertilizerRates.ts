@@ -1,25 +1,26 @@
 import type { Handler } from "@netlify/functions";
 import { requireAdmin } from "../../src/utils/requireAuth";
-import { deleteCropImageById } from "./utils/cropImagesDb";
+import { saveFertilizerRateConfig } from "./utils/fertilizerRateConfigDb";
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
 
-  const { id } = JSON.parse(event.body || "{}");
-  if (!id) return { statusCode: 400, body: "id required" };
-
   try {
-    const ok = await deleteCropImageById(Number(id));
-    if (!ok) return { statusCode: 404, body: "Image not found" };
+    const body = JSON.parse(event.body || "{}");
+    const config = await saveFertilizerRateConfig(body.config ?? body);
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config),
     };
   } catch (err) {
     console.error(err);
-    return { statusCode: 500, body: "Server error" };
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: "Server error" }),
+    };
   }
 };
 

@@ -6,20 +6,23 @@ import CropNotes from "./pages/CropNotes";
 import ActivityLog from "./pages/ActivityLog";
 import EmailReports from "./pages/EmailReports";
 import Fertilizer from "./pages/Fertilizer";
+import { AuthProvider } from "./utils/AuthContext";
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/add-expense" element={<AddExpense />} />
-        <Route path="/crops/:cropName/notes" element={<CropNotes />} />
-        <Route path="/activity" element={<ActivityLog />} />
-        <Route path="/email-reports" element={<EmailReports />} />
-        <Route path="/fertilizer" element={<Fertilizer />} />
-        <Route path="*" element={<Navigate to="/login" />} />
-      </Routes>
-    </BrowserRouter>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/add-expense" element={<AddExpense />} />
+          <Route path="/crops/:cropName/notes" element={<CropNotes />} />
+          <Route path="/activity" element={<ActivityLog />} />
+          <Route path="/email-reports" element={<EmailReports />} />
+          <Route path="/fertilizer" element={<Fertilizer />} />
+          <Route path="*" element={<Navigate to="/login" />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }

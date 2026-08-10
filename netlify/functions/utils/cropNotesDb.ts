@@ -33,6 +33,24 @@ export async function ensureCropNotesTable() {
     if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(msg)) throw err;
   }
 
+  try {
+    await pool.query(
+      `ALTER TABLE crop_notes ADD COLUMN source VARCHAR(128) NULL`
+    );
+  } catch (err: any) {
+    const msg = String(err?.message || err);
+    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(msg)) throw err;
+  }
+
+  try {
+    await pool.query(
+      `CREATE INDEX idx_crop_notes_source ON crop_notes (source)`
+    );
+  } catch (err: any) {
+    const msg = String(err?.message || err);
+    if (!/Duplicate|ER_DUP_KEYNAME|exists/i.test(msg)) throw err;
+  }
+
   ensured = true;
 }
 

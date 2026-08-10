@@ -1,5 +1,5 @@
 import type { Handler } from "@netlify/functions";
-import { requireAuth } from "../../src/utils/requireAuth";
+import { requireAdmin } from "../../src/utils/requireAuth";
 import { insertCropImage } from "./utils/cropImagesDb";
 
 const baseHandler: Handler = async (event) => {
@@ -35,4 +35,4 @@ const baseHandler: Handler = async (event) => {
   }
 };
 
-export const handler = requireAuth(baseHandler);
+export const handler = requireAdmin(baseHandler);
