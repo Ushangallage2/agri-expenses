@@ -1,4 +1,15 @@
 import pool from "../db";
+import {
+  isTurmericCropName,
+  type RescueWeek,
+} from "./fertilizerRecipes";
+import {
+  defaultFertilizerRateConfig,
+  defaultTurmericChemicalFertilizerRateConfig,
+  defaultTurmericFertilizerRateConfig,
+  getFertilizerRateConfig,
+  type FertilizerRateConfig,
+} from "./fertilizerRateConfigDb";
 
 let ensured = false;
 
@@ -12,6 +23,62 @@ export type ScheduleStepInput = {
   unit?: string | null;
   intervalDays?: number | null;
 };
+
+export type ScheduleSeedKind =
+  | "auto"
+  | "pepper"
+  | "turmeric_premium"
+  | "turmeric_chemical"
+  | "from_rates";
+
+/** Convert Apply-week rate weeks into timetable steps. */
+export function rateConfigToScheduleSteps(
+  config: FertilizerRateConfig
+): ScheduleStepInput[] {
+  const weeks = config.weeks || [];
+  const intervals = config.intervals || {};
+  return weeks.map((w: RescueWeek, i: number) => {
+    const lineBlock = (w.lines || [])
+      .map((l) => {
+        const amt =
+          l.mode === "per_plant"
+            ? `${l.gramsPerPlant ?? 0} g/plant`
+            : l.mode === "per_tank"
+              ? `${l.gramsPerTank ?? 0} g/tank`
+              : `${l.gramsFixed ?? 0} g`;
+        const tip = l.tip ? ` — ${l.tip}` : "";
+        return `• ${l.fertilizerName}: ${amt}${tip}`;
+      })
+      .join("\n");
+    const primary =
+      (w.lines || []).find((l) => l.mode === "per_plant") ||
+      (w.lines || [])[0];
+    let suggestedAmount: number | null = null;
+    let unit: string | null = null;
+    if (primary?.mode === "per_plant") {
+      suggestedAmount = primary.gramsPerPlant ?? null;
+      unit = "g/plant";
+    } else if (primary?.mode === "per_tank") {
+      suggestedAmount = primary.gramsPerTank ?? null;
+      unit = "g/tank";
+    } else if (primary?.mode === "fixed") {
+      suggestedAmount = primary.gramsFixed ?? null;
+      unit = "g";
+    }
+    return {
+      stepOrder: i + 1,
+      weekNumber: w.week,
+      title: w.title,
+      instructions: [w.summary, lineBlock].filter(Boolean).join("\n\n") || null,
+      suggestedAmount,
+      unit,
+      intervalDays:
+        intervals[String(w.week)] != null
+          ? Number(intervals[String(w.week)])
+          : null,
+    };
+  });
+}
 
 /** Advisor rescue plan — seedable for any crop (doses calibrated for small pepper vines). */
 export const DEFAULT_CYCLE_NAME = "Pepper Fertilizer Mixtures + rescue";
@@ -423,38 +490,75 @@ export async function ensureDefaultTemplate(): Promise<number> {
   return id;
 }
 
-/** Clone the default template (or create fresh) onto a crop. */
-export async function seedScheduleForCrop(cropName: string) {
+/**
+ * Create a crop-owned timetable (never attaches another crop’s schedule).
+ * kind=auto → turmeric premium for turmeric crops, pepper rescue otherwise.
+ * kind=from_rates → steps from this crop’s saved Apply-week rate config.
+ */
+export async function seedScheduleForCrop(
+  cropName: string,
+  kind: ScheduleSeedKind = "auto"
+) {
   await ensureFertilizerTables();
   const crop = cropName.trim();
   if (!crop) throw new Error("cropName required");
 
-  const templateId = await ensureDefaultTemplate();
-  const template = await getScheduleWithSteps(templateId);
-  if (!template) throw new Error("Template missing");
+  let resolved: ScheduleSeedKind = kind;
+  if (resolved === "auto") {
+    resolved = isTurmericCropName(crop) ? "turmeric_premium" : "pepper";
+  }
+
+  let name: string;
+  let description: string;
+  let steps: ScheduleStepInput[];
+
+  if (resolved === "from_rates") {
+    const config = await getFertilizerRateConfig(crop);
+    steps = rateConfigToScheduleSteps(config);
+    if (!steps.length) {
+      throw new Error(
+        "This crop has no Apply-week rates to turn into a schedule yet."
+      );
+    }
+    name = `${crop} Apply-week plan`;
+    description =
+      "Timetable cloned from this crop’s current Apply-week / Edit rates plan. " +
+      "Stock sync still uses Apply week.";
+  } else if (resolved === "turmeric_premium") {
+    const config = defaultTurmericFertilizerRateConfig();
+    steps = rateConfigToScheduleSteps(config);
+    name = "Turmeric Extra-Premium Phase 1–5";
+    description =
+      "Localized premium turmeric plan (soil prep → rooting → canopy → swelling → flush). " +
+      "Per-crop timetable — not shared with other crops.";
+  } else if (resolved === "turmeric_chemical") {
+    const config = defaultTurmericChemicalFertilizerRateConfig();
+    steps = rateConfigToScheduleSteps(config);
+    name = "Turmeric Chemical (Urea / TSP / MOP)";
+    description =
+      "Per 1,000 plants: 12 kg Urea + 10 kg TSP + 12 kg MOP, applied in thirds at planting, 60 days, and 120 days.";
+  } else if (resolved === "pepper") {
+    // Prefer the classic advisor steps (includes mixture week metadata).
+    steps = DEFAULT_CYCLE_STEPS.map((s) => ({ ...s }));
+    name = DEFAULT_CYCLE_NAME;
+    description = DEFAULT_CYCLE_DESCRIPTION;
+    // Keep global template in sync for legacy callers, but crop gets its own row.
+    await ensureDefaultTemplate();
+  } else {
+    const config = defaultFertilizerRateConfig();
+    steps = rateConfigToScheduleSteps(config);
+    name = DEFAULT_CYCLE_NAME;
+    description = DEFAULT_CYCLE_DESCRIPTION;
+  }
 
   const created = await pool.query(
     `INSERT INTO fertilizer_schedules (crop_name, name, description)
      VALUES ($1, $2, $3)
      RETURNING id`,
-    [crop, template.name, template.description]
+    [crop, name, description]
   );
   const id = Number(created.rows[0].id);
-
-  await insertScheduleSteps(
-    id,
-    template.steps.map((s) => ({
-      stepOrder: s.step_order,
-      weekNumber: s.week_number,
-      title: s.title,
-      instructions: s.instructions,
-      suggestedFertilizerId: s.suggested_fertilizer_id,
-      suggestedAmount: s.suggested_amount,
-      unit: s.unit,
-      intervalDays: s.interval_days,
-    }))
-  );
-
+  await insertScheduleSteps(id, steps);
   return getScheduleWithSteps(id);
 }
 

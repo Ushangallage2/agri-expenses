@@ -1371,11 +1371,18 @@ export default function FertilizerPage() {
     }
   }
 
-  async function seedPepperTemplate() {
+  async function seedCropSchedule(
+    kind:
+      | "auto"
+      | "pepper"
+      | "turmeric_premium"
+      | "turmeric_chemical"
+      | "from_rates"
+  ) {
     if (!isAdmin) return;
     if (!selectedCrop) {
       play("error");
-      setError("Pick a crop first to attach the cycle template.");
+      setError("Pick a crop first to create a schedule for that crop only.");
       return;
     }
     void unlockAudio();
@@ -1387,13 +1394,13 @@ export default function FertilizerPage() {
       const res = await apiFetch("/seedDefaultSchedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cropName: selectedCrop }),
+        body: JSON.stringify({ cropName: selectedCrop, kind }),
       });
       if (!res.ok) throw new Error(await readError(res));
       const schedule = (await res.json()) as Schedule;
       play("success");
       setMessage(
-        `Seeded “${schedule.name}” for ${selectedCrop}. Customize steps below.`
+        `Created “${schedule.name}” for ${selectedCrop} only. Edit steps below if needed.`
       );
       await loadSchedules(selectedCrop);
       setActiveScheduleId(schedule.id);
@@ -1401,30 +1408,6 @@ export default function FertilizerPage() {
     } catch (err: any) {
       play("error");
       setError(err?.message || "Seed failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function ensureGlobalTemplate() {
-    if (!isAdmin) return;
-    void unlockAudio();
-    play("click");
-    setSaving(true);
-    setError("");
-    try {
-      const res = await apiFetch("/seedDefaultSchedule", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) throw new Error(await readError(res));
-      play("save");
-      setMessage("Global 4-week template ready (used when seeding a crop).");
-      if (selectedCrop) await loadSchedules(selectedCrop);
-    } catch (err: any) {
-      play("error");
-      setError(err?.message || "Failed to create template");
     } finally {
       setSaving(false);
     }
@@ -2450,299 +2433,357 @@ export default function FertilizerPage() {
           {tab === "inventory" && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="space-y-6">
-              {isAdmin && (
               <section className="glass-card gold-sheen">
                 <p className="eyebrow">Catalog</p>
                 <h2 className="font-display text-xl text-gold mb-4">
-                  {editId ? "Edit fertilizer" : "Add fertilizer"}
+                  {isAdmin
+                    ? editId
+                      ? "Edit fertilizer"
+                      : "Add fertilizer"
+                    : "Product catalog"}
                 </h2>
-                <div className="flex flex-wrap gap-2 mb-4 items-center">
-                  <button
-                    type="button"
-                    className="glass-btn gold-btn text-sm"
-                    disabled={saving}
-                    onClick={() => void importPurchasePack("add")}
-                    title="Adds purchase pack quantities onto current stock; updates unit prices"
-                  >
-                    Add purchases to stock
-                  </button>
-                  <button
-                    type="button"
-                    className="glass-btn text-sm"
-                    disabled={saving}
-                    onClick={() => void importPurchasePack("set")}
-                    title="Admin only: replace stock with pack quantities"
-                  >
-                    Reset stock to pack
-                  </button>
-                </div>
+                {isAdmin && (
+                  <div className="flex flex-wrap gap-2 mb-4 items-center">
+                    <button
+                      type="button"
+                      className="glass-btn gold-btn text-sm"
+                      disabled={saving}
+                      onClick={() => void importPurchasePack("add")}
+                      title="Adds purchase pack quantities onto current stock; updates unit prices"
+                    >
+                      Add purchases to stock
+                    </button>
+                    <button
+                      type="button"
+                      className="glass-btn text-sm"
+                      disabled={saving}
+                      onClick={() => void importPurchasePack("set")}
+                      title="Admin only: replace stock with pack quantities"
+                    >
+                      Reset stock to pack
+                    </button>
+                  </div>
+                )}
                 <p className="text-xs text-gold-muted mb-4 leading-relaxed">
-                  Sync adds these quantities to current inventory (does not
-                  replace stock).
+                  Sync adds purchase-pack quantities to current inventory (does
+                  not replace stock).
+                  {!isAdmin &&
+                    " Admins use Add purchases to stock / Reset stock to pack."}
                 </p>
-                <form onSubmit={saveFertilizer} className="space-y-3">
-                  <label className="block">
-                    <span className="eyebrow mb-1 block">Name</span>
-                    <input
-                      className="glass-input"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder="e.g. NPK 15-15-15"
-                      required
-                    />
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
+                {isAdmin ? (
+                  <form onSubmit={saveFertilizer} className="space-y-3">
                     <label className="block">
-                      <span className="eyebrow mb-1 block">Unit</span>
+                      <span className="eyebrow mb-1 block">Name</span>
                       <input
                         className="glass-input"
-                        value={unit}
-                        onChange={(e) => setUnit(e.target.value)}
-                        placeholder="kg / g / L"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="e.g. NPK 15-15-15"
                         required
                       />
                     </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="block">
+                        <span className="eyebrow mb-1 block">Unit</span>
+                        <input
+                          className="glass-input"
+                          value={unit}
+                          onChange={(e) => setUnit(e.target.value)}
+                          placeholder="kg / g / L"
+                          required
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="eyebrow mb-1 block">Stock qty</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          className="glass-input"
+                          value={stockQty}
+                          onChange={(e) => setStockQty(e.target.value)}
+                          required
+                        />
+                      </label>
+                    </div>
                     <label className="block">
-                      <span className="eyebrow mb-1 block">Stock qty</span>
+                      <span className="eyebrow mb-1 block">Unit price</span>
                       <input
                         type="number"
                         min={0}
                         step="any"
                         className="glass-input"
-                        value={stockQty}
-                        onChange={(e) => setStockQty(e.target.value)}
+                        value={unitPrice}
+                        onChange={(e) => setUnitPrice(e.target.value)}
                         required
                       />
                     </label>
-                  </div>
-                  <label className="block">
-                    <span className="eyebrow mb-1 block">Unit price</span>
-                    <input
-                      type="number"
-                      min={0}
-                      step="any"
-                      className="glass-input"
-                      value={unitPrice}
-                      onChange={(e) => setUnitPrice(e.target.value)}
-                      required
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="eyebrow mb-1 block">Notes</span>
-                    <textarea
-                      className="glass-input min-h-[72px] resize-y"
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      placeholder="Optional"
-                    />
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="submit"
-                      className={`glass-btn gold-btn ${saving ? "opacity-50" : ""}`}
-                      disabled={saving}
-                    >
-                      {saving ? "Saving…" : editId ? "Update" : "Add"}
-                    </button>
-                    {editId && (
+                    <label className="block">
+                      <span className="eyebrow mb-1 block">Notes</span>
+                      <textarea
+                        className="glass-input min-h-[72px] resize-y"
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="Optional"
+                      />
+                    </label>
+                    <div className="flex flex-wrap gap-2">
                       <button
-                        type="button"
-                        className="glass-btn"
-                        onClick={() => {
-                          play("click");
-                          resetFertForm();
-                        }}
+                        type="submit"
+                        className={`glass-btn gold-btn ${saving ? "opacity-50" : ""}`}
+                        disabled={saving}
                       >
-                        Cancel
+                        {saving ? "Saving…" : editId ? "Update" : "Add"}
                       </button>
-                    )}
+                      {editId && (
+                        <button
+                          type="button"
+                          className="glass-btn"
+                          onClick={() => {
+                            play("click");
+                            resetFertForm();
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+                  </form>
+                ) : fertilizers.length === 0 ? (
+                  <p className="text-gold-muted text-sm">
+                    No catalog products yet. Stock list appears on the right when
+                    products are added.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5 max-h-[40vh] overflow-y-auto custom-scroll">
+                    {fertilizers.map((f) => (
+                      <div
+                        key={f.id}
+                        className="flex justify-between gap-3 text-sm border-b border-white/10 py-1.5"
+                      >
+                        <span className="text-gold truncate">{f.name}</span>
+                        <span className="text-gold-muted whitespace-nowrap">
+                          {f.unit}
+                          {f.notes ? ` · ${f.notes}` : ""}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                </form>
+                )}
               </section>
-              )}
 
-              {isAdmin && (
               <section className="glass-card gold-sheen space-y-3">
                 <div>
                   <p className="eyebrow">Purchases</p>
                   <h2 className="font-display text-xl text-gold">
-                    Edit purchase pack
+                    {isAdmin ? "Edit purchase pack" : "Purchase pack"}
                   </h2>
                   <p className="text-sm text-gold-muted mt-2 leading-relaxed">
-                    Enter this purchase’s qty (kg) and unit price (/kg). Save the
-                    pack, then use <strong>Add purchases to stock</strong> — that
-                    adds these quantities to current inventory and updates
-                    prices (does not replace stock).
+                    {isAdmin ? (
+                      <>
+                        Enter this purchase’s qty (kg) and unit price (/kg). Save
+                        the pack, then use{" "}
+                        <strong>Add purchases to stock</strong> — that adds these
+                        quantities to current inventory and updates prices (does
+                        not replace stock).
+                      </>
+                    ) : (
+                      <>
+                        Read-only view of the saved purchase pack. Admins save
+                        the pack, then use{" "}
+                        <strong>Add purchases to stock</strong> to add these
+                        quantities to inventory (does not replace stock).
+                      </>
+                    )}
                   </p>
                 </div>
                 <div className="space-y-3 max-h-[50vh] overflow-y-auto custom-scroll pr-1">
-                  {purchasePack.map((row, idx) => (
-                    <div
-                      key={idx}
-                      className="rounded-xl border border-[var(--glass-border)] bg-black/20 p-3 space-y-2"
+                  {purchasePack.length === 0 ? (
+                    <p className="text-gold-muted text-sm">
+                      No purchase pack products saved yet.
+                    </p>
+                  ) : (
+                    purchasePack.map((row, idx) => (
+                      <div
+                        key={idx}
+                        className="rounded-xl border border-[var(--glass-border)] bg-black/20 p-3 space-y-2"
+                      >
+                        <div className="flex flex-wrap gap-2 items-start">
+                          <label className="block flex-1 min-w-[140px]">
+                            <span className="eyebrow mb-1 block">Product</span>
+                            <input
+                              className="glass-input"
+                              value={row.name}
+                              readOnly={!isAdmin}
+                              disabled={!isAdmin}
+                              onChange={(e) =>
+                                setPurchasePack((prev) =>
+                                  prev.map((r, i) =>
+                                    i === idx
+                                      ? { ...r, name: e.target.value }
+                                      : r
+                                  )
+                                )
+                              }
+                            />
+                          </label>
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              className="glass-btn text-xs text-red-300 mt-5"
+                              onClick={() => {
+                                play("click");
+                                setPurchasePack((prev) =>
+                                  prev.filter((_, i) => i !== idx)
+                                );
+                              }}
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <label className="block">
+                            <span className="eyebrow mb-1 block">Qty</span>
+                            <input
+                              type="number"
+                              min={0}
+                              step="any"
+                              className="glass-input"
+                              value={row.stock_qty}
+                              readOnly={!isAdmin}
+                              disabled={!isAdmin}
+                              onChange={(e) =>
+                                setPurchasePack((prev) =>
+                                  prev.map((r, i) =>
+                                    i === idx
+                                      ? { ...r, stock_qty: e.target.value }
+                                      : r
+                                  )
+                                )
+                              }
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="eyebrow mb-1 block">Unit</span>
+                            <input
+                              className="glass-input"
+                              value={row.unit}
+                              readOnly={!isAdmin}
+                              disabled={!isAdmin}
+                              onChange={(e) =>
+                                setPurchasePack((prev) =>
+                                  prev.map((r, i) =>
+                                    i === idx
+                                      ? { ...r, unit: e.target.value }
+                                      : r
+                                  )
+                                )
+                              }
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="eyebrow mb-1 block">
+                              Price / unit
+                            </span>
+                            <input
+                              type="number"
+                              min={0}
+                              step="any"
+                              className="glass-input"
+                              value={row.unit_price}
+                              readOnly={!isAdmin}
+                              disabled={!isAdmin}
+                              onChange={(e) =>
+                                setPurchasePack((prev) =>
+                                  prev.map((r, i) =>
+                                    i === idx
+                                      ? { ...r, unit_price: e.target.value }
+                                      : r
+                                  )
+                                )
+                              }
+                            />
+                          </label>
+                        </div>
+                        <label className="block">
+                          <span className="eyebrow mb-1 block">Notes</span>
+                          <input
+                            className="glass-input"
+                            value={row.notes}
+                            readOnly={!isAdmin}
+                            disabled={!isAdmin}
+                            onChange={(e) =>
+                              setPurchasePack((prev) =>
+                                prev.map((r, i) =>
+                                  i === idx
+                                    ? { ...r, notes: e.target.value }
+                                    : r
+                                )
+                              )
+                            }
+                          />
+                        </label>
+                      </div>
+                    ))
+                  )}
+                </div>
+                {isAdmin && (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="glass-btn"
+                      onClick={() => {
+                        play("click");
+                        setPurchasePack((prev) => [
+                          ...prev,
+                          {
+                            name: "",
+                            unit: "kg",
+                            stock_qty: "0",
+                            unit_price: "0",
+                            notes: "",
+                          },
+                        ]);
+                      }}
                     >
-                      <div className="flex flex-wrap gap-2 items-start">
-                        <label className="block flex-1 min-w-[140px]">
-                          <span className="eyebrow mb-1 block">Product</span>
-                          <input
-                            className="glass-input"
-                            value={row.name}
-                            onChange={(e) =>
-                              setPurchasePack((prev) =>
-                                prev.map((r, i) =>
-                                  i === idx
-                                    ? { ...r, name: e.target.value }
-                                    : r
-                                )
-                              )
-                            }
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          className="glass-btn text-xs text-red-300 mt-5"
-                          onClick={() => {
-                            play("click");
-                            setPurchasePack((prev) =>
-                              prev.filter((_, i) => i !== idx)
-                            );
-                          }}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2">
-                        <label className="block">
-                          <span className="eyebrow mb-1 block">Qty</span>
-                          <input
-                            type="number"
-                            min={0}
-                            step="any"
-                            className="glass-input"
-                            value={row.stock_qty}
-                            onChange={(e) =>
-                              setPurchasePack((prev) =>
-                                prev.map((r, i) =>
-                                  i === idx
-                                    ? { ...r, stock_qty: e.target.value }
-                                    : r
-                                )
-                              )
-                            }
-                          />
-                        </label>
-                        <label className="block">
-                          <span className="eyebrow mb-1 block">Unit</span>
-                          <input
-                            className="glass-input"
-                            value={row.unit}
-                            onChange={(e) =>
-                              setPurchasePack((prev) =>
-                                prev.map((r, i) =>
-                                  i === idx
-                                    ? { ...r, unit: e.target.value }
-                                    : r
-                                )
-                              )
-                            }
-                          />
-                        </label>
-                        <label className="block">
-                          <span className="eyebrow mb-1 block">
-                            Price / unit
-                          </span>
-                          <input
-                            type="number"
-                            min={0}
-                            step="any"
-                            className="glass-input"
-                            value={row.unit_price}
-                            onChange={(e) =>
-                              setPurchasePack((prev) =>
-                                prev.map((r, i) =>
-                                  i === idx
-                                    ? { ...r, unit_price: e.target.value }
-                                    : r
-                                )
-                              )
-                            }
-                          />
-                        </label>
-                      </div>
-                      <label className="block">
-                        <span className="eyebrow mb-1 block">Notes</span>
-                        <input
-                          className="glass-input"
-                          value={row.notes}
-                          onChange={(e) =>
-                            setPurchasePack((prev) =>
-                              prev.map((r, i) =>
-                                i === idx
-                                  ? { ...r, notes: e.target.value }
-                                  : r
-                              )
-                            )
-                          }
-                        />
-                      </label>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="glass-btn"
-                    onClick={() => {
-                      play("click");
-                      setPurchasePack((prev) => [
-                        ...prev,
-                        {
-                          name: "",
-                          unit: "kg",
-                          stock_qty: "0",
-                          unit_price: "0",
-                          notes: "",
-                        },
-                      ]);
-                    }}
-                  >
-                    + Product
-                  </button>
-                  <button
-                    type="button"
-                    className={`glass-btn gold-btn ${
-                      purchasePackSaving ? "opacity-50" : ""
-                    }`}
-                    disabled={purchasePackSaving}
-                    onClick={() => void savePurchasePack()}
-                  >
-                    {purchasePackSaving ? "Saving…" : "Save purchase pack"}
-                  </button>
-                  <button
-                    type="button"
-                    className="glass-btn gold-btn"
-                    disabled={saving || purchasePackSaving}
-                    onClick={() => void importPurchasePack("add")}
-                    title="Adds purchase pack quantities onto current stock; updates unit prices"
-                  >
-                    Add purchases to stock
-                  </button>
-                  <button
-                    type="button"
-                    className="glass-btn text-sm"
-                    disabled={saving || purchasePackSaving}
-                    onClick={() => void importPurchasePack("set")}
-                    title="Admin only: replace stock with pack quantities"
-                  >
-                    Reset stock to pack
-                  </button>
-                </div>
+                      + Product
+                    </button>
+                    <button
+                      type="button"
+                      className={`glass-btn gold-btn ${
+                        purchasePackSaving ? "opacity-50" : ""
+                      }`}
+                      disabled={purchasePackSaving}
+                      onClick={() => void savePurchasePack()}
+                    >
+                      {purchasePackSaving ? "Saving…" : "Save purchase pack"}
+                    </button>
+                    <button
+                      type="button"
+                      className="glass-btn gold-btn"
+                      disabled={saving || purchasePackSaving}
+                      onClick={() => void importPurchasePack("add")}
+                      title="Adds purchase pack quantities onto current stock; updates unit prices"
+                    >
+                      Add purchases to stock
+                    </button>
+                    <button
+                      type="button"
+                      className="glass-btn text-sm"
+                      disabled={saving || purchasePackSaving}
+                      onClick={() => void importPurchasePack("set")}
+                      title="Admin only: replace stock with pack quantities"
+                    >
+                      Reset stock to pack
+                    </button>
+                  </div>
+                )}
                 <p className="text-xs text-gold-muted leading-relaxed">
                   Sync adds these quantities to current inventory (does not
                   replace stock).
                 </p>
               </section>
-              )}
               </div>
 
               <section className="glass-card">
@@ -2752,7 +2793,9 @@ export default function FertilizerPage() {
                 </h2>
                 {fertilizers.length === 0 ? (
                   <p className="text-gold-muted text-sm">
-                    No fertilizers yet. Add your first product.
+                    {isAdmin
+                      ? "No fertilizers yet. Add your first product."
+                      : "No fertilizers in stock yet."}
                   </p>
                 ) : (
                   <ul className="space-y-3">
@@ -2898,7 +2941,9 @@ export default function FertilizerPage() {
                     Crop schedules
                   </h2>
                   <p className="text-sm text-gold-muted mt-2">
-                    Shows only the selected crop&apos;s schedules.
+                    Editable calendar for the selected crop only — not shared
+                    with other crops. Apply week still handles stock; this tab
+                    is the crop&apos;s step timetable.
                   </p>
                 </div>
 
@@ -2924,34 +2969,59 @@ export default function FertilizerPage() {
                       Select a crop
                     </p>
                     <p className="text-sm text-gold-muted leading-relaxed">
-                      Pick a crop to view or manage that crop&apos;s schedule
-                      set only.
+                      Pick a crop to view or create that crop&apos;s own
+                      schedule set (pepper, turmeric, etc. stay separate).
                     </p>
                   </div>
                 ) : (
                   <>
                     {isAdmin && (
                       <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className="glass-btn gold-btn"
-                          disabled={!selectedCrop || saving}
-                          onClick={() => void seedPepperTemplate()}
-                        >
-                          Use 4-week rescue template
-                        </button>
+                        {isTurmericCropName(selectedCrop) ? (
+                          <>
+                            <button
+                              type="button"
+                              className="glass-btn gold-btn"
+                              disabled={saving}
+                              onClick={() =>
+                                void seedCropSchedule("turmeric_premium")
+                              }
+                            >
+                              Seed premium Phase 1–5
+                            </button>
+                            <button
+                              type="button"
+                              className="glass-btn"
+                              disabled={saving}
+                              onClick={() =>
+                                void seedCropSchedule("turmeric_chemical")
+                              }
+                            >
+                              Seed chemical Urea/TSP/MOP
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="glass-btn gold-btn"
+                            disabled={saving}
+                            onClick={() => void seedCropSchedule("pepper")}
+                          >
+                            Seed pepper rescue weeks
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="glass-btn"
-                          onClick={() => void ensureGlobalTemplate()}
                           disabled={saving}
+                          onClick={() => void seedCropSchedule("from_rates")}
+                          title="Copy this crop’s current Apply-week / Edit rates plan into a timetable"
                         >
-                          Ensure global template
+                          Seed from Apply-week plan
                         </button>
                         <button
                           type="button"
                           className="glass-btn"
-                          disabled={!selectedCrop}
                           onClick={startNewSchedule}
                         >
                           New blank schedule
@@ -2960,14 +3030,19 @@ export default function FertilizerPage() {
                     )}
 
                     <p className="text-xs text-gold-muted leading-relaxed">
-                      Seeds the advisor rescue plan (soil base → MgSO₄ → micros →
-                      disease). For day-to-day stock sync, use the{" "}
-                      <strong>Apply week</strong> tab.
+                      {isTurmericCropName(selectedCrop)
+                        ? "Turmeric seed options create a timetable for this crop only (premium phases or chemical stages). "
+                        : "Pepper seed creates the Mixtures + Week 1–4 rescue timetable for this crop only. "}
+                      You can keep several schedules per crop and delete ones
+                      you do not need. Day-to-day stock still uses{" "}
+                      <strong>Apply week</strong>.
                     </p>
 
                     {cropSchedules.length > 0 ? (
                       <div className="space-y-2">
-                        <p className="eyebrow">For {selectedCrop}</p>
+                        <p className="eyebrow">
+                          Schedules for {selectedCrop} only
+                        </p>
                         {cropSchedules.map((s) => (
                           <button
                             key={s.id}
@@ -2988,7 +3063,9 @@ export default function FertilizerPage() {
                     ) : (
                       <p className="text-gold-muted text-sm">
                         No schedules for {selectedCrop} yet
-                        {isAdmin ? " — seed a template or create a blank one." : "."}
+                        {isAdmin
+                          ? " — seed a crop-matched plan or create a blank one."
+                          : "."}
                       </p>
                     )}
                   </>
@@ -3012,7 +3089,7 @@ export default function FertilizerPage() {
                 ) : schedSteps.length === 0 && !schedName ? (
                   <p className="text-gold-muted text-sm">
                     {isAdmin
-                      ? "Select a schedule, or seed the rescue template / start a blank schedule."
+                      ? "Select a schedule above, or seed a plan matched to this crop / start a blank schedule."
                       : "Select a schedule above to view steps."}
                   </p>
                 ) : (

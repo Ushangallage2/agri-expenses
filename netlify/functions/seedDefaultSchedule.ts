@@ -4,7 +4,16 @@ import {
   ensureDefaultTemplate,
   getScheduleWithSteps,
   seedScheduleForCrop,
+  type ScheduleSeedKind,
 } from "./utils/fertilizerDb";
+
+const KINDS = new Set<ScheduleSeedKind>([
+  "auto",
+  "pepper",
+  "turmeric_premium",
+  "turmeric_chemical",
+  "from_rates",
+]);
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -13,10 +22,14 @@ const baseHandler: Handler = async (event) => {
 
   const body = JSON.parse(event.body || "{}");
   const cropName = String(body.cropName ?? body.crop_name ?? "").trim();
+  const rawKind = String(body.kind ?? body.template ?? "auto")
+    .trim()
+    .toLowerCase() as ScheduleSeedKind;
+  const kind: ScheduleSeedKind = KINDS.has(rawKind) ? rawKind : "auto";
 
   try {
     if (cropName) {
-      const schedule = await seedScheduleForCrop(cropName);
+      const schedule = await seedScheduleForCrop(cropName, kind);
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json" },
@@ -24,6 +37,7 @@ const baseHandler: Handler = async (event) => {
       };
     }
 
+    // No crop → ensure global pepper template only (not shown in crop schedules).
     const templateId = await ensureDefaultTemplate();
     const template = await getScheduleWithSteps(templateId);
     return {
