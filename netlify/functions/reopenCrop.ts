@@ -78,6 +78,8 @@ export const handler: Handler = async (event) => {
     invalidate("crops:");
     invalidate("cropTodos:");
     invalidate("cropNotes:");
+    invalidate("dashboard:");
+    invalidate("fertilizer:");
 
     return {
       statusCode: 200,

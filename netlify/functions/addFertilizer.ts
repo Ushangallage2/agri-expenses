@@ -53,6 +53,7 @@ const baseHandler: Handler = async (event) => {
     }
 
     invalidate("fertilizers:");
+    invalidate("fertilizer:");
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },

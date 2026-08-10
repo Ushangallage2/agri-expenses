@@ -86,6 +86,7 @@ export const handler: Handler = async (event) => {
     }
 
     invalidate("expenses:");
+    invalidate("dashboard:");
     return {
       statusCode: 200,
       body: JSON.stringify({ success: true, message: "Updated" }),

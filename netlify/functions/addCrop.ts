@@ -30,6 +30,8 @@ const baseHandler: Handler = async (event) => {
     );
 
     invalidate("crops:");
+    invalidate("dashboard:");
+    invalidate("fertilizer:");
     return {
       statusCode: 200,
       body: JSON.stringify({

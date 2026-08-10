@@ -6,6 +6,7 @@ import { compressImageFile } from "../utils/imageCompress";
 import SoundToggle from "../components/SoundToggle";
 import ConfirmModal from "../components/ConfirmModal";
 import { useAuth } from "../utils/AuthContext";
+import { deferWork, invalidateCache, swrLoad } from "../utils/clientCache";
 
 type EntryType = "note" | "todo";
 
@@ -123,21 +124,44 @@ export default function CropNotes() {
   async function loadAll() {
     setError(null);
     try {
-      await loadNotes();
+      await swrLoad({
+        key: `cropNotes:${crop}`,
+        freshMaxAgeMs: 45_000,
+        fetcher: async () => {
+          const res = await fetch(
+            `${API}/getCropNotes?crop=${encodeURIComponent(crop)}`,
+            { credentials: "include" }
+          );
+          if (res.status === 401) {
+            navigate("/login");
+            throw new Error("Unauthorized");
+          }
+          if (!res.ok) throw new Error(await res.text());
+          return res.json() as Promise<Note[]>;
+        },
+        apply: (rows) => setNotes(rows),
+      });
     } catch (err: any) {
-      setError(err.message || "Failed to load notes");
+      if (err?.message !== "Unauthorized") {
+        setError(err.message || "Failed to load notes");
+      }
     }
     try {
       await loadPlantCount();
     } catch (err: any) {
       console.error(err);
     }
-    try {
-      await loadImages();
-    } catch (err: any) {
-      console.error(err);
-      setError((prev) => prev || "Images unavailable — restart npm run dev if you're local.");
-    }
+    // Images are heavy (data URLs) — load after notes paint
+    deferWork(() => {
+      void loadImages().catch((err: any) => {
+        console.error(err);
+        setError(
+          (prev) =>
+            prev ||
+            "Images unavailable — restart npm run dev if you're local."
+        );
+      });
+    }, 80);
   }
 
   async function savePlantCount(e: React.FormEvent) {
@@ -351,6 +375,7 @@ export default function CropNotes() {
       play("save");
       setText("");
       setPendingImage(null);
+      invalidateCache(`cropNotes:${crop}`);
       await loadAll();
     } catch (err: any) {
       play("error");

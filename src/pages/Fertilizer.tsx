@@ -25,6 +25,10 @@ import {
 } from "../utils/fertilizerRecipes";
 import { useAuth } from "../utils/AuthContext";
 import Money from "../components/Money";
+import {
+  invalidateCache,
+  swrLoad,
+} from "../utils/clientCache";
 
 type Fertilizer = {
   id: number;
@@ -794,27 +798,134 @@ export default function FertilizerPage() {
     setLoading(true);
     setError("");
     try {
-      const tasks: Promise<void>[] = [
-        loadCrops(),
-        loadFertilizers(),
-        loadPurchasePack(),
-      ];
-      if (selectedCrop) {
-        tasks.push(loadSchedules(selectedCrop));
-        tasks.push(loadApplications(selectedCrop));
-      }
-      await Promise.all(tasks);
-      const cropForRates = applyCrop || selectedCrop || cropParam;
-      if (cropForRates) {
-        const cfg = await loadRateConfig(cropForRates);
-        if (cfg) setRateConfig(cfg);
-      } else {
-        setRateConfig(defaultFertilizerRateConfig());
-      }
+      const cropForRates = applyCrop || selectedCrop || cropParam || "";
+      const cacheKey = cropForRates
+        ? `fertilizer:bootstrap:${cropForRates.toLowerCase()}`
+        : "fertilizer:bootstrap";
+
+      await swrLoad({
+        key: cacheKey,
+        freshMaxAgeMs: 45_000,
+        fetcher: async () => {
+          const q = cropForRates
+            ? `?crop=${encodeURIComponent(cropForRates)}`
+            : "";
+          const res = await apiFetch(`/getFertilizerBootstrap${q}`);
+          if (res.status === 401) {
+            navigate("/login");
+            throw new Error("Unauthorized");
+          }
+          if (!res.ok) throw new Error(await readError(res));
+          return res.json();
+        },
+        apply: (data) => {
+          applyFertilizerBootstrap(data);
+        },
+      });
     } catch (e: any) {
-      setError(e?.message || "Failed to load");
+      if (e?.message !== "Unauthorized") {
+        setError(e?.message || "Failed to load");
+      }
     } finally {
       setLoading(false);
+    }
+  }
+
+  function applyFertilizerBootstrap(data: {
+    crops?: {
+      name: string;
+      plant_count?: number;
+      status?: string;
+    }[];
+    fertilizers?: Fertilizer[];
+    purchasePack?: { items?: any[] };
+    schedules?: Schedule[];
+    applications?: Application[];
+    rates?: FertilizerRateConfig | null;
+    crop?: string | null;
+  }) {
+    if (!data) return;
+
+    if (Array.isArray(data.crops)) {
+      const active = data.crops.filter(
+        (r) => String(r.status || "active").toLowerCase() !== "closed"
+      );
+      setCropMeta(
+        active.map((r) => ({
+          name: r.name,
+          plant_count: Number(r.plant_count) || 0,
+          status: String(r.status || "active"),
+        }))
+      );
+      const names = active.map((r) => r.name).filter(Boolean);
+      setCrops(names);
+      setSelectedCrop((prev) => (prev && !names.includes(prev) ? "" : prev));
+      setApplyCrop((prev) => (prev && !names.includes(prev) ? "" : prev));
+      setUseCrop((prev) => (prev && !names.includes(prev) ? "" : prev));
+    }
+
+    if (Array.isArray(data.fertilizers)) {
+      setFertilizers(data.fertilizers);
+    }
+
+    if (data.purchasePack?.items) {
+      setPurchasePack(
+        data.purchasePack.items.map(
+          (row: {
+            name?: string;
+            unit?: string;
+            stock_qty?: number;
+            unit_price?: number;
+            notes?: string | null;
+          }) => ({
+            name: String(row.name || ""),
+            unit: String(row.unit || "kg"),
+            stock_qty: String(row.stock_qty ?? 0),
+            unit_price: String(row.unit_price ?? 0),
+            notes: row.notes != null ? String(row.notes) : "",
+          })
+        )
+      );
+    }
+
+    if (Array.isArray(data.schedules)) {
+      setSchedules(data.schedules);
+      setSelectedSchedIds([]);
+      const forCrop = data.schedules;
+      const prefer =
+        forCrop.find((s) => s.is_working) || forCrop[0] || null;
+      if (prefer) {
+        setActiveScheduleId(prefer.id);
+        fillScheduleForm(prefer);
+      } else if (!forCrop.length) {
+        setActiveScheduleId(null);
+        clearScheduleForm();
+      }
+    }
+
+    if (Array.isArray(data.applications)) {
+      setApplications(data.applications);
+    }
+
+    if (data.rates) {
+      const name = String(data.crop || applyCrop || selectedCrop || "").trim();
+      const defaults = name
+        ? defaultFertilizerRateConfigForCrop(name)
+        : defaultFertilizerRateConfig();
+      setRateConfig({
+        mixtureRates: data.rates.mixtureRates || defaults.mixtureRates,
+        weeks:
+          Array.isArray(data.rates.weeks) && data.rates.weeks.length > 0
+            ? data.rates.weeks
+            : defaults.weeks,
+        intervals: data.rates.intervals || defaults.intervals,
+        tankLiters:
+          Number(data.rates.tankLiters) > 0
+            ? Number(data.rates.tankLiters)
+            : defaults.tankLiters,
+      });
+    } else if (!(applyCrop || selectedCrop || cropParam)) {
+      setRateConfig(defaultFertilizerRateConfig());
     }
   }
 
@@ -958,6 +1069,7 @@ export default function FertilizerPage() {
       }
       if (!res.ok) throw new Error(await readError(res));
       const data = await res.json();
+      invalidateCache("fertilizer");
       setFertilizers(data.fertilizers || []);
       await loadPurchasePack();
       play("save");

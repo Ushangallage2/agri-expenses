@@ -13,6 +13,11 @@ import { sortExpensesByDate } from "../utils/sortExpenses";
 import { compressImageFile } from "../utils/imageCompress";
 import { useAuth } from "../utils/AuthContext";
 import Money, { MoneyShield } from "../components/Money";
+import {
+  deferWork,
+  invalidateCache,
+  swrLoad,
+} from "../utils/clientCache";
 
 
 
@@ -1157,9 +1162,12 @@ export default function Dashboard() {
 
 
   useEffect(() => {
-    fetchAll();
-    loadTrends();
-    loadPlantTrends();
+    void fetchAll();
+    // Charts are secondary — load after first paint / idle
+    deferWork(() => {
+      void loadTrends();
+      void loadPlantTrends();
+    }, 120);
   }, []);
 
   async function loadTrends() {
@@ -1196,39 +1204,55 @@ export default function Dashboard() {
     return res.json();
   }
 
-async function fetchAll() {
-  const [u, r, c, e, a, todos] = await Promise.all([
-    safeFetch("/.netlify/functions/getUsers"),
-    safeFetch("/.netlify/functions/getReasons"),
-    safeFetch("/.netlify/functions/getCrops"),
-    safeFetch("/.netlify/functions/getExpenses"),
-    safeFetch("/.netlify/functions/getAmounts"),
-    safeFetch("/.netlify/functions/getCropTodoCounts").catch(() => []),
-  ]);
-
-  if (!u || !r || !c || !e || !a) return;
-
-  setUsers(u);
-  setReasons(r);
-  setCrops(c);
-  setExpenses(
-    sortExpensesByDate(
-      e.map((item: any) => ({
-        ...item,
-        amount: Number(item.amount),
-        has_receipt: Boolean(item.has_receipt),
-      }))
-    )
-  );
-  setAmounts(a);
-  const counts: Record<string, number> = {};
-  for (const row of todos || []) {
-    counts[row.crop_name] = Number(row.open_todos) || 0;
+  function applyDashboardPayload(data: {
+    users?: string[];
+    reasons?: string[];
+    crops?: Crop[];
+    expenses?: any[];
+    amounts?: number[];
+    todoCounts?: { crop_name: string; open_todos: number }[];
+  }) {
+    if (!data) return;
+    if (data.users) setUsers(data.users);
+    if (data.reasons) setReasons(data.reasons);
+    if (data.crops) setCrops(data.crops);
+    if (data.expenses) {
+      setExpenses(
+        sortExpensesByDate(
+          data.expenses.map((item: any) => ({
+            ...item,
+            amount: Number(item.amount),
+            has_receipt: Boolean(item.has_receipt),
+          }))
+        )
+      );
+    }
+    if (data.amounts) setAmounts(data.amounts);
+    if (data.todoCounts) {
+      const counts: Record<string, number> = {};
+      for (const row of data.todoCounts) {
+        counts[row.crop_name] = Number(row.open_todos) || 0;
+      }
+      setCropTodoCounts(counts);
+    }
   }
-  setCropTodoCounts(counts);
-}
+
+  async function fetchAll() {
+    try {
+      await swrLoad({
+        key: "dashboard:bootstrap",
+        freshMaxAgeMs: 45_000,
+        fetcher: () =>
+          safeFetch("/.netlify/functions/getDashboardBootstrap"),
+        apply: (data) => applyDashboardPayload(data),
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  }
 
 async function fetchExpenses() {
+  invalidateCache("dashboard");
   const e = await safeFetch("/.netlify/functions/getExpenses");
 
   if (e) {
@@ -1252,6 +1276,7 @@ async function addRecord(data: any) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
+  invalidateCache("dashboard");
   await fetchExpenses();
   await loadTrends();
   return res;
@@ -1264,6 +1289,7 @@ async function updateCrop(id: string, crop_id: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id, crop_id }),
   });
+  invalidateCache("dashboard");
   fetchAll();
 }
 
@@ -1346,6 +1372,8 @@ async function closeCrop(cropName: string) {
     });
     play("save");
     setCropToClose(null);
+    invalidateCache("dashboard");
+    invalidateCache("fertilizer");
     await fetchAll();
     await loadPlantTrends();
   } catch {
@@ -1363,6 +1391,8 @@ async function reopenCrop(cropName: string) {
     });
     play("save");
     setCropToReopen(null);
+    invalidateCache("dashboard");
+    invalidateCache("fertilizer");
     await fetchAll();
     await loadPlantTrends();
   } catch {

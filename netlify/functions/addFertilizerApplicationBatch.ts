@@ -303,8 +303,10 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
     }
 
     invalidate("fertilizers:");
+    invalidate("fertilizer:");
     invalidate("fertilizerRates:");
     invalidate("expenses:");
+    invalidate("dashboard:");
     invalidate("cropTodos:");
     invalidate("cropNotes:");
     return {

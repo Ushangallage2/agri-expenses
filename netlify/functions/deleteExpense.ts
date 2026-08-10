@@ -15,6 +15,7 @@ export const handler: Handler = async (event) => {
     await pool.query("DELETE FROM expenses WHERE id=$1", [id]);
 
     invalidate("expenses:");
+    invalidate("dashboard:");
     return { statusCode: 200, body: JSON.stringify({ success: true, message: "Deleted" }) };
 
   } catch (err) {

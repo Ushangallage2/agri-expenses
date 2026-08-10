@@ -17,6 +17,13 @@
 [functions."sendLedgerSummary"]
   schedule = "0 8 * * *"
 
+# Free warm pings — keep bootstrap functions from going fully cold (no extra services)
+[functions."getDashboardBootstrap"]
+  schedule = "*/7 * * * *"
+
+[functions."getFertilizerBootstrap"]
+  schedule = "*/11 * * * *"
+
 [dev]
   command = "vite"
   targetPort = 5173

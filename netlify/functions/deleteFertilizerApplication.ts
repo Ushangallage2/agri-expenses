@@ -57,6 +57,7 @@ const baseHandler: Handler = async (event) => {
     );
 
     invalidate("fertilizers:");
+    invalidate("fertilizer:");
     invalidate("cropTodos:");
     invalidate("cropNotes:");
     return {

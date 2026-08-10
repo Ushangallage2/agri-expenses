@@ -13,6 +13,7 @@ export const handler: Handler = async (event) => {
 
     await pool.query("UPDATE expenses SET crop=$1 WHERE id=$2", [crop, id]);
     invalidate("expenses:");
+    invalidate("dashboard:");
     return { statusCode: 200, body: "Updated" };
   } catch (err) {
     console.error(err);
