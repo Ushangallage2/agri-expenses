@@ -19,7 +19,7 @@ const baseHandler: Handler = async (event) => {
     let schedules;
     if (templatesOnly) {
       schedules = await pool.query(
-        `SELECT id, crop_name, name, description, created_at
+        `SELECT id, crop_name, name, description, is_working, created_at
          FROM fertilizer_schedules
          WHERE crop_name IS NULL
          ORDER BY name ASC, id ASC`
@@ -27,17 +27,17 @@ const baseHandler: Handler = async (event) => {
     } else if (crop) {
       // Selected crop only — do not mix in global templates.
       schedules = await pool.query(
-        `SELECT id, crop_name, name, description, created_at
+        `SELECT id, crop_name, name, description, is_working, created_at
          FROM fertilizer_schedules
          WHERE crop_name = $1
-         ORDER BY name ASC, id ASC`,
+         ORDER BY is_working DESC, name ASC, id ASC`,
         [crop]
       );
     } else {
       schedules = await pool.query(
-        `SELECT id, crop_name, name, description, created_at
+        `SELECT id, crop_name, name, description, is_working, created_at
          FROM fertilizer_schedules
-         ORDER BY (crop_name IS NULL) DESC, crop_name ASC, name ASC, id ASC`
+         ORDER BY (crop_name IS NULL) DESC, crop_name ASC, is_working DESC, name ASC, id ASC`
       );
     }
 

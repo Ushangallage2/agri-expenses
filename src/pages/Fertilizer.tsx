@@ -61,6 +61,7 @@ type Schedule = {
   crop_name: string | null;
   name: string;
   description: string | null;
+  is_working?: boolean;
   created_at: string;
   steps: ScheduleStep[];
 };
@@ -324,6 +325,9 @@ export default function FertilizerPage() {
   const [confirmDeleteSched, setConfirmDeleteSched] = useState<number | null>(
     null
   );
+  const [selectedSchedIds, setSelectedSchedIds] = useState<number[]>([]);
+  const [confirmBulkDeleteSched, setConfirmBulkDeleteSched] = useState(false);
+  const [saveAndApply, setSaveAndApply] = useState(true);
   /** Pending turmeric template overwrite: premium | chemical */
   const [confirmTurmericTemplate, setConfirmTurmericTemplate] = useState<
     "premium" | "chemical" | null
@@ -361,13 +365,26 @@ export default function FertilizerPage() {
 
   const cropSchedules = useMemo(
     () =>
-      schedules.filter(
-        (s) =>
-          selectedCrop &&
-          s.crop_name &&
-          s.crop_name.toLowerCase() === selectedCrop.toLowerCase()
-      ),
+      schedules
+        .filter(
+          (s) =>
+            selectedCrop &&
+            s.crop_name &&
+            s.crop_name.toLowerCase() === selectedCrop.toLowerCase()
+        )
+        .slice()
+        .sort((a, b) => {
+          const aw = a.is_working ? 1 : 0;
+          const bw = b.is_working ? 1 : 0;
+          if (bw !== aw) return bw - aw;
+          return a.name.localeCompare(b.name);
+        }),
     [schedules, selectedCrop]
+  );
+
+  const workingSchedule = useMemo(
+    () => cropSchedules.find((s) => s.is_working) || null,
+    [cropSchedules]
   );
 
   const activeSchedule = useMemo(
@@ -1111,14 +1128,17 @@ export default function FertilizerPage() {
     if (!res.ok) throw new Error(await readError(res));
     const rows = (await res.json()) as Schedule[];
     setSchedules(rows);
+    setSelectedSchedIds([]);
     if (crop) {
-      const forCrop = rows.find(
+      const forCrop = rows.filter(
         (s) =>
           s.crop_name && s.crop_name.toLowerCase() === crop.toLowerCase()
       );
-      if (forCrop) {
-        setActiveScheduleId(forCrop.id);
-        fillScheduleForm(forCrop);
+      const prefer =
+        forCrop.find((s) => s.is_working) || forCrop[0] || null;
+      if (prefer) {
+        setActiveScheduleId(prefer.id);
+        fillScheduleForm(prefer);
       } else {
         setActiveScheduleId(null);
         clearScheduleForm();
@@ -1398,13 +1418,21 @@ export default function FertilizerPage() {
       });
       if (!res.ok) throw new Error(await readError(res));
       const schedule = (await res.json()) as Schedule;
+      const applyRes = await apiFetch("/applyFertilizerSchedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: schedule.id }),
+      });
+      const applied = applyRes.ok
+        ? ((await applyRes.json()) as Schedule)
+        : schedule;
       play("success");
       setMessage(
-        `Created “${schedule.name}” for ${selectedCrop} only. Edit steps below if needed.`
+        `Created “${applied.name}” for ${selectedCrop} and set it as currently working.`
       );
       await loadSchedules(selectedCrop);
-      setActiveScheduleId(schedule.id);
-      fillScheduleForm(schedule);
+      setActiveScheduleId(applied.id);
+      fillScheduleForm(applied);
     } catch (err: any) {
       play("error");
       setError(err?.message || "Seed failed");
@@ -1467,7 +1495,7 @@ export default function FertilizerPage() {
     );
   }
 
-  async function saveScheduleForm(e: FormEvent) {
+  async function saveScheduleForm(e: FormEvent, applyWorking = saveAndApply) {
     e.preventDefault();
     if (!isAdmin) return;
     if (!selectedCrop && !activeSchedule?.crop_name) {
@@ -1492,6 +1520,7 @@ export default function FertilizerPage() {
           cropName: cropForSave,
           name: schedName.trim(),
           description: schedDesc.trim() || null,
+          applyWorking: Boolean(applyWorking && cropForSave),
           steps: schedSteps.map((s, i) => ({
             stepOrder: i + 1,
             weekNumber: s.week_number,
@@ -1507,13 +1536,47 @@ export default function FertilizerPage() {
       if (!res.ok) throw new Error(await readError(res));
       const saved = (await res.json()) as Schedule;
       play("save");
-      setMessage("Schedule saved.");
+      setMessage(
+        saved.is_working
+          ? `Saved and set as currently working schedule for ${saved.crop_name || selectedCrop}.`
+          : "Schedule saved."
+      );
       setActiveScheduleId(saved.id);
       await loadSchedules(selectedCrop || undefined);
       fillScheduleForm(saved);
     } catch (err: any) {
       play("error");
       setError(err?.message || "Failed to save schedule");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function applyWorkingSchedule(id: number) {
+    if (!isAdmin) return;
+    void unlockAudio();
+    play("click");
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const res = await apiFetch("/applyFertilizerSchedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const saved = (await res.json()) as Schedule;
+      play("success");
+      setMessage(
+        `“${saved.name}” is now the currently working schedule for ${saved.crop_name}.`
+      );
+      setActiveScheduleId(saved.id);
+      await loadSchedules(selectedCrop || undefined);
+      fillScheduleForm(saved);
+    } catch (err: any) {
+      play("error");
+      setError(err?.message || "Failed to apply schedule");
     } finally {
       setSaving(false);
     }
@@ -1528,7 +1591,7 @@ export default function FertilizerPage() {
       const res = await apiFetch("/deleteFertilizerSchedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ ids: [id] }),
       });
       if (!res.ok) throw new Error(await readError(res));
       play("delete");
@@ -1538,6 +1601,7 @@ export default function FertilizerPage() {
         setActiveScheduleId(null);
         clearScheduleForm();
       }
+      setSelectedSchedIds((prev) => prev.filter((x) => x !== id));
       await loadSchedules(selectedCrop || undefined);
     } catch (err: any) {
       play("error");
@@ -1548,9 +1612,45 @@ export default function FertilizerPage() {
     }
   }
 
+  async function removeSchedulesBulk(ids: number[]) {
+    if (!isAdmin || !ids.length) return;
+    void unlockAudio();
+    setSaving(true);
+    setError("");
+    try {
+      const res = await apiFetch("/deleteFertilizerSchedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const data = (await res.json()) as { deleted?: number };
+      play("delete");
+      setConfirmBulkDeleteSched(false);
+      setMessage(
+        `Deleted ${data.deleted ?? ids.length} schedule${
+          (data.deleted ?? ids.length) === 1 ? "" : "s"
+        }.`
+      );
+      if (activeScheduleId && ids.includes(activeScheduleId)) {
+        setActiveScheduleId(null);
+        clearScheduleForm();
+      }
+      setSelectedSchedIds([]);
+      await loadSchedules(selectedCrop || undefined);
+    } catch (err: any) {
+      play("error");
+      setError(err?.message || "Bulk delete failed");
+      setConfirmBulkDeleteSched(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function onCropChange(crop: string) {
     setSelectedCrop(crop);
     setUseCrop(crop);
+    setSelectedSchedIds([]);
     if (crop) {
       setSearchParams({ crop });
     } else {
@@ -3039,26 +3139,157 @@ export default function FertilizerPage() {
                     </p>
 
                     {cropSchedules.length > 0 ? (
-                      <div className="space-y-2">
-                        <p className="eyebrow">
-                          Schedules for {selectedCrop} only
-                        </p>
-                        {cropSchedules.map((s) => (
-                          <button
-                            key={s.id}
-                            type="button"
-                            className={`w-full text-left glass-btn ${
-                              activeScheduleId === s.id ? "gold-btn" : ""
-                            }`}
-                            onClick={() => {
-                              play("click");
-                              setActiveScheduleId(s.id);
-                              fillScheduleForm(s);
-                            }}
-                          >
-                            {s.name} · {s.steps.length} steps
-                          </button>
-                        ))}
+                      <div className="space-y-3">
+                        {workingSchedule && (
+                          <div className="rounded-xl border border-emerald-400/45 bg-emerald-950/30 px-3 py-3">
+                            <p className="text-[10px] uppercase tracking-wider text-emerald-300/90 mb-1">
+                              Currently working schedule
+                            </p>
+                            <p className="font-display text-lg text-gold">
+                              {workingSchedule.name}
+                            </p>
+                            <p className="text-xs text-gold-muted mt-1">
+                              {workingSchedule.steps.length} step
+                              {workingSchedule.steps.length === 1 ? "" : "s"} ·{" "}
+                              {selectedCrop}
+                            </p>
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="eyebrow">
+                            Schedules for {selectedCrop} only
+                          </p>
+                          {isAdmin && (
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                className="glass-btn text-xs"
+                                onClick={() => {
+                                  play("click");
+                                  if (
+                                    selectedSchedIds.length ===
+                                    cropSchedules.length
+                                  ) {
+                                    setSelectedSchedIds([]);
+                                  } else {
+                                    setSelectedSchedIds(
+                                      cropSchedules.map((s) => s.id)
+                                    );
+                                  }
+                                }}
+                              >
+                                {selectedSchedIds.length ===
+                                cropSchedules.length
+                                  ? "Clear selection"
+                                  : "Select all"}
+                              </button>
+                              <button
+                                type="button"
+                                className="glass-btn text-xs text-red-300"
+                                disabled={
+                                  saving || selectedSchedIds.length === 0
+                                }
+                                onClick={() => {
+                                  play("click");
+                                  setConfirmBulkDeleteSched(true);
+                                }}
+                              >
+                                Delete selected ({selectedSchedIds.length})
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="space-y-2">
+                          {cropSchedules.map((s) => (
+                            <div
+                              key={s.id}
+                              className={`flex items-stretch gap-2 rounded-xl border p-1 ${
+                                s.is_working
+                                  ? "border-emerald-400/50 bg-emerald-950/25 ring-1 ring-emerald-400/30"
+                                  : activeScheduleId === s.id
+                                    ? "border-[var(--gold)]/40 bg-[var(--gold)]/10"
+                                    : "border-[var(--glass-border)] bg-black/20"
+                              }`}
+                            >
+                              {isAdmin && (
+                                <label className="flex items-center pl-2 shrink-0">
+                                  <input
+                                    type="checkbox"
+                                    className="accent-[var(--gold)]"
+                                    checked={selectedSchedIds.includes(s.id)}
+                                    onChange={(e) => {
+                                      setSelectedSchedIds((prev) =>
+                                        e.target.checked
+                                          ? [...prev, s.id]
+                                          : prev.filter((id) => id !== s.id)
+                                      );
+                                    }}
+                                  />
+                                </label>
+                              )}
+                              <button
+                                type="button"
+                                className="flex-1 text-left glass-btn border-0 bg-transparent rounded-xl py-2"
+                                onClick={() => {
+                                  play("click");
+                                  setActiveScheduleId(s.id);
+                                  fillScheduleForm(s);
+                                }}
+                              >
+                                <span className="flex flex-wrap items-center gap-2">
+                                  <span className="font-medium text-gold">
+                                    {s.name}
+                                  </span>
+                                  {s.is_working && (
+                                    <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-200 border border-emerald-400/40">
+                                      Currently working
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="text-xs text-gold-muted block mt-0.5">
+                                  {s.steps.length} step
+                                  {s.steps.length === 1 ? "" : "s"}
+                                  {s.crop_name ? ` · ${s.crop_name}` : ""}
+                                </span>
+                              </button>
+                              {isAdmin && (
+                                <div className="flex flex-col gap-1 self-center pr-2 shrink-0">
+                                  {!s.is_working && (
+                                    <button
+                                      type="button"
+                                      className="glass-btn text-xs gold-btn"
+                                      disabled={saving}
+                                      title="Set as currently working schedule"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        void applyWorkingSchedule(s.id);
+                                      }}
+                                    >
+                                      Apply
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="glass-btn text-xs text-red-300"
+                                    disabled={saving}
+                                    title={`Delete “${s.name}”`}
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      play("click");
+                                      setConfirmDeleteSched(s.id);
+                                    }}
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     ) : (
                       <p className="text-gold-muted text-sm">
@@ -3261,7 +3492,7 @@ export default function FertilizerPage() {
                     </div>
 
                     {isAdmin && (
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-2 items-center">
                         <button
                           type="button"
                           className="glass-btn"
@@ -3269,13 +3500,40 @@ export default function FertilizerPage() {
                         >
                           + Step
                         </button>
+                        <label className="flex items-center gap-2 text-sm text-gold-muted px-1">
+                          <input
+                            type="checkbox"
+                            className="accent-[var(--gold)]"
+                            checked={saveAndApply}
+                            onChange={(e) => setSaveAndApply(e.target.checked)}
+                          />
+                          Apply as currently working when saving
+                        </label>
                         <button
                           type="submit"
                           className={`glass-btn gold-btn ${saving ? "opacity-50" : ""}`}
                           disabled={saving}
                         >
-                          {saving ? "Saving…" : "Save schedule"}
+                          {saving
+                            ? "Saving…"
+                            : saveAndApply
+                              ? "Save & apply"
+                              : "Save schedule"}
                         </button>
+                        {activeScheduleId &&
+                          selectedCrop &&
+                          !activeSchedule?.is_working && (
+                            <button
+                              type="button"
+                              className="glass-btn"
+                              disabled={saving}
+                              onClick={() =>
+                                void applyWorkingSchedule(activeScheduleId)
+                              }
+                            >
+                              Apply as working
+                            </button>
+                          )}
                         {activeScheduleId && (
                           <button
                             type="button"
@@ -3816,13 +4074,34 @@ export default function FertilizerPage() {
       <ConfirmModal
         open={confirmDeleteSched != null}
         title="Delete schedule?"
-        message="All timetable steps for this schedule will be removed."
+        message={
+          confirmDeleteSched != null
+            ? `Remove “${
+                schedules.find((s) => s.id === confirmDeleteSched)?.name ||
+                "this schedule"
+              }” and all its steps for ${
+                schedules.find((s) => s.id === confirmDeleteSched)?.crop_name ||
+                selectedCrop ||
+                "this crop"
+              } only? This cannot be undone.`
+            : "All timetable steps for this schedule will be removed."
+        }
         confirmLabel="Delete"
         onCancel={() => setConfirmDeleteSched(null)}
         onConfirm={() => {
           if (confirmDeleteSched != null)
             void removeSchedule(confirmDeleteSched);
         }}
+      />
+      <ConfirmModal
+        open={confirmBulkDeleteSched}
+        title="Delete selected schedules?"
+        message={`Permanently delete ${selectedSchedIds.length} schedule${
+          selectedSchedIds.length === 1 ? "" : "s"
+        } for ${selectedCrop || "this crop"}? This cannot be undone.`}
+        confirmLabel="Delete all selected"
+        onCancel={() => setConfirmBulkDeleteSched(false)}
+        onConfirm={() => void removeSchedulesBulk(selectedSchedIds)}
       />
       <ConfirmModal
         open={confirmTurmericTemplate != null}

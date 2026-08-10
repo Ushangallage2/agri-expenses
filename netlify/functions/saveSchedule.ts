@@ -5,6 +5,7 @@ import {
   ensureFertilizerTables,
   getScheduleWithSteps,
   insertScheduleSteps,
+  setWorkingSchedule,
   toNum,
   type ScheduleStepInput,
 } from "./utils/fertilizerDb";
@@ -65,6 +66,10 @@ const baseHandler: Handler = async (event) => {
       ? body.cropName ?? body.crop_name
       : undefined;
   const steps = parseSteps(body.steps);
+  const applyWorking =
+    body.applyWorking === true ||
+    body.setWorking === true ||
+    body.apply === true;
 
   if (!name) {
     return {
@@ -120,8 +125,8 @@ const baseHandler: Handler = async (event) => {
           : String(cropName).trim();
 
       const created = await pool.query(
-        `INSERT INTO fertilizer_schedules (crop_name, name, description)
-         VALUES ($1, $2, $3)
+        `INSERT INTO fertilizer_schedules (crop_name, name, description, is_working)
+         VALUES ($1, $2, $3, 0)
          RETURNING id`,
         [nextCrop, name, description]
       );
@@ -129,7 +134,11 @@ const baseHandler: Handler = async (event) => {
     }
 
     await insertScheduleSteps(scheduleId!, steps);
-    const full = await getScheduleWithSteps(scheduleId!);
+
+    let full = await getScheduleWithSteps(scheduleId!);
+    if (applyWorking && full?.crop_name) {
+      full = await setWorkingSchedule(scheduleId!);
+    }
 
     return {
       statusCode: 200,

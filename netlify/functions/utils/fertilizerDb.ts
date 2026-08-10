@@ -178,10 +178,20 @@ export async function ensureFertilizerTables() {
       crop_name VARCHAR(255) NULL,
       name VARCHAR(255) NOT NULL,
       description TEXT NULL,
+      is_working TINYINT(1) NOT NULL DEFAULT 0,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_fs_crop (crop_name)
     )
   `);
+
+  try {
+    await pool.query(
+      `ALTER TABLE fertilizer_schedules
+       ADD COLUMN is_working TINYINT(1) NOT NULL DEFAULT 0`
+    );
+  } catch {
+    /* column already exists */
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS fertilizer_schedule_steps (
@@ -393,9 +403,68 @@ export function mapSchedule(
     crop_name: row.crop_name != null ? String(row.crop_name) : null,
     name: String(row.name),
     description: row.description != null ? String(row.description) : null,
+    is_working: Number(row.is_working) === 1 || row.is_working === true,
     created_at: row.created_at,
     steps,
   };
+}
+
+/**
+ * Mark one schedule as the crop’s currently working timetable.
+ * Clears is_working on other schedules for the same crop_name.
+ */
+export async function setWorkingSchedule(scheduleId: number) {
+  await ensureFertilizerTables();
+  const sched = await pool.query(
+    `SELECT id, crop_name, name FROM fertilizer_schedules WHERE id = $1`,
+    [scheduleId]
+  );
+  if (!sched.rows[0]) throw new Error("Schedule not found");
+  const crop = sched.rows[0].crop_name;
+  if (crop == null || String(crop).trim() === "") {
+    throw new Error("Only crop schedules can be set as working (not global templates).");
+  }
+  const cropName = String(crop).trim();
+  await pool.query(
+    `UPDATE fertilizer_schedules SET is_working = 0
+     WHERE crop_name = $1`,
+    [cropName]
+  );
+  await pool.query(
+    `UPDATE fertilizer_schedules SET is_working = 1 WHERE id = $1`,
+    [scheduleId]
+  );
+  return getScheduleWithSteps(scheduleId);
+}
+
+/** Delete many schedules by id (steps + apps unlink). Returns deleted count. */
+export async function deleteSchedulesByIds(ids: number[]): Promise<number> {
+  await ensureFertilizerTables();
+  const unique = [...new Set(ids.filter((id) => Number.isFinite(id) && id > 0))];
+  let deleted = 0;
+  for (const scheduleId of unique) {
+    const steps = await pool.query(
+      `SELECT id FROM fertilizer_schedule_steps WHERE schedule_id = $1`,
+      [scheduleId]
+    );
+    for (const step of steps.rows) {
+      await pool.query(
+        `UPDATE fertilizer_applications SET schedule_step_id = NULL
+         WHERE schedule_step_id = $1`,
+        [step.id]
+      );
+    }
+    await pool.query(
+      `DELETE FROM fertilizer_schedule_steps WHERE schedule_id = $1`,
+      [scheduleId]
+    );
+    const res = await pool.query(
+      `DELETE FROM fertilizer_schedules WHERE id = $1`,
+      [scheduleId]
+    );
+    if (res.rowCount) deleted += 1;
+  }
+  return deleted;
 }
 
 export function mapApplication(row: Record<string, unknown>) {
@@ -443,7 +512,7 @@ export async function insertScheduleSteps(
 
 export async function getScheduleWithSteps(scheduleId: number) {
   const sched = await pool.query(
-    `SELECT id, crop_name, name, description, created_at
+    `SELECT id, crop_name, name, description, is_working, created_at
      FROM fertilizer_schedules WHERE id = $1`,
     [scheduleId]
   );
