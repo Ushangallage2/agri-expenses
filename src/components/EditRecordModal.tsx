@@ -13,7 +13,11 @@ export type EditableExpense = {
   has_receipt?: boolean;
 };
 
-type Crop = { id: string; name: string };
+type Crop = {
+  id: string;
+  name: string;
+  status?: string;
+};
 
 function toDateInput(value: string) {
   const d = new Date(value);
@@ -242,7 +246,9 @@ export default function EditRecordModal({
               <option value="">Select crop</option>
               {crops.map((c) => (
                 <option key={c.id || c.name} value={c.name}>
-                  {c.name}
+                  {String(c.status || "").toLowerCase() === "closed"
+                    ? `${c.name} (Closed)`
+                    : c.name}
                 </option>
               ))}
             </select>

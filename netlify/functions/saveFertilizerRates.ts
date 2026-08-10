@@ -10,7 +10,20 @@ const baseHandler: Handler = async (event) => {
 
   try {
     const body = JSON.parse(event.body || "{}");
-    const config = await saveFertilizerRateConfig(body.config ?? body);
+    const cropName = String(body.cropName || body.crop || "").trim();
+    if (!cropName) {
+      return {
+        statusCode: 400,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ error: "cropName is required" }),
+      };
+    }
+
+    const config = await saveFertilizerRateConfig(
+      cropName,
+      body.config ?? body
+    );
+    invalidate(`fertilizerRates:${cropName.toLowerCase()}`);
     invalidate("fertilizerRates:");
     invalidate("fertilizers:");
     invalidate("cropTodos:");

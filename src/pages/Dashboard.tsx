@@ -41,6 +41,12 @@ type Crop = {
   id: string;
   name: string;
   plant_count?: number;
+  status?: "active" | "closed";
+  closed_at?: string | null;
+  closed_plant_count?: number | null;
+  closed_income?: number | null;
+  closed_expense?: number | null;
+  closed_profit?: number | null;
 };
 
 
@@ -48,6 +54,19 @@ type Option = {
   value: string;
   label: string;
 };
+
+function isClosedCrop(c: { status?: string | null }) {
+  return String(c.status || "active").toLowerCase() === "closed";
+}
+
+/** Plant count for P&L / per-plant KPIs — snapshot while closed. */
+function effectivePlantCount(c: Crop) {
+  if (isClosedCrop(c)) {
+    const snap = Number(c.closed_plant_count);
+    if (Number.isFinite(snap) && snap > 0) return snap;
+  }
+  return Number(c.plant_count) || 0;
+}
 
 function splitTotals(items: Expense[]) {
   let income = 0;
@@ -69,7 +88,11 @@ function CounterCard({
   onClick,
   onDelete,
   plantCount,
+  closedPlantCount,
+  isClosed,
   openTodos,
+  onCloseCrop,
+  onReopenCrop,
 }: {
   label: string;
   income: number;
@@ -80,11 +103,20 @@ function CounterCard({
   onClick?: () => void;
   onDelete?: () => void;
   plantCount?: number | null;
+  closedPlantCount?: number | null;
+  isClosed?: boolean;
   openTodos?: number | null;
+  onCloseCrop?: () => void;
+  onReopenCrop?: () => void;
 }) {
   const formatted = profit.toLocaleString();
   const isHero = label === "Ledger";
   const todoCount = Number(openTodos) || 0;
+  const displayPlants = isClosed
+    ? Number(closedPlantCount) || 0
+    : plantCount != null
+      ? Number(plantCount) || 0
+      : null;
 
   const fontSize =
     formatted.length <= 5
@@ -94,14 +126,18 @@ function CounterCard({
   const body = (
     <>
       <div
-        className={`relative rounded-full counter-ring ${onClick ? "cursor-pointer" : ""}`}
+        className={`relative rounded-full counter-ring ${onClick ? "cursor-pointer" : ""} ${
+          isClosed ? "counter-ring--closed" : ""
+        }`}
         style={{ width: size, height: size, minWidth: size, minHeight: size }}
       >
         {imgSrc && (
           <img
             src={imgSrc}
             alt=""
-            className="w-full h-full rounded-full object-cover opacity-90 pointer-events-none"
+            className={`w-full h-full rounded-full object-cover pointer-events-none ${
+              isClosed ? "opacity-45 grayscale" : "opacity-90"
+            }`}
           />
         )}
         {!imgSrc && (
@@ -109,7 +145,9 @@ function CounterCard({
         )}
         <div className="absolute inset-0 flex flex-col items-center justify-center px-2 pointer-events-none">
           <span
-            className="font-extrabold select-none text-gold glow-text"
+            className={`font-extrabold select-none glow-text ${
+              isClosed ? "text-white/70" : "text-gold"
+            }`}
             style={{ fontSize: `${fontSize}px`, lineHeight: 1 }}
           >
             <Money value={profit} />
@@ -120,7 +158,12 @@ function CounterCard({
             </span>
           )}
         </div>
-        {todoCount > 0 && (
+        {isClosed && (
+          <span className="crop-closed-badge" title="Plantation closed">
+            Closed
+          </span>
+        )}
+        {todoCount > 0 && !isClosed && (
           <span
             className="todo-ripple todo-ripple--counter"
             title={`${todoCount} open todo${todoCount === 1 ? "" : "s"}`}
@@ -132,21 +175,37 @@ function CounterCard({
             <span className="todo-ripple__count">{todoCount}</span>
           </span>
         )}
-        {plantCount != null && (
-          <div className="plant-count-badge" title={`${plantCount} plants`}>
-            <span className="plant-count-badge__value">{plantCount}</span>
-            <span className="plant-count-badge__label">plants</span>
+        {displayPlants != null && (
+          <div
+            className={`plant-count-badge ${isClosed ? "plant-count-badge--closed" : ""}`}
+            title={
+              isClosed
+                ? `Closed · was ${displayPlants} plants`
+                : `${displayPlants} plants`
+            }
+          >
+            <span className="plant-count-badge__value">{displayPlants}</span>
+            <span className="plant-count-badge__label">
+              {isClosed ? "was" : "plants"}
+            </span>
           </div>
         )}
       </div>
 
       <div className="mt-2 text-center w-full max-w-[160px]">
         <div
-          className={`font-medium text-sm truncate ${onClick ? "text-gold" : "text-white"}`}
+          className={`font-medium text-sm truncate ${
+            onClick ? (isClosed ? "text-white/55" : "text-gold") : "text-white"
+          }`}
         >
           {label}
           {onClick ? " →" : ""}
         </div>
+        {isClosed && (
+          <div className="mt-1 text-[10px] uppercase tracking-wider text-stone-400">
+            Closed · was {displayPlants ?? 0} plants
+          </div>
+        )}
         <div className="mt-1 flex flex-wrap justify-center gap-1">
           <span className="stat-pill text-emerald-300/90">
             +<Money value={income} />
@@ -160,7 +219,11 @@ function CounterCard({
   );
 
   return (
-    <div className="flex flex-col items-center relative group animate-rise">
+    <div
+      className={`flex flex-col items-center relative group animate-rise ${
+        isClosed ? "opacity-80" : ""
+      }`}
+    >
       {onDelete && (
         <button
           type="button"
@@ -187,6 +250,34 @@ function CounterCard({
         </button>
       ) : (
         <div className="flex flex-col items-center">{body}</div>
+      )}
+      {(onCloseCrop || onReopenCrop) && (
+        <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+          {onCloseCrop && (
+            <button
+              type="button"
+              className="glass-btn text-[11px] px-2 py-1 text-stone-300"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCloseCrop();
+              }}
+            >
+              Close crop
+            </button>
+          )}
+          {onReopenCrop && (
+            <button
+              type="button"
+              className="glass-btn text-[11px] px-2 py-1 text-emerald-300"
+              onClick={(e) => {
+                e.stopPropagation();
+                onReopenCrop();
+              }}
+            >
+              Reopen
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -585,7 +676,7 @@ function AddRecordForm({
           placeholder="Select crop"
           options={crops.map((c) => ({
             value: c.name,
-            label: c.name,
+            label: isClosedCrop(c) ? `${c.name} (Closed)` : c.name,
           }))}
         />
 
@@ -1051,6 +1142,8 @@ export default function Dashboard() {
   );
   const [sessionExpired, setSessionExpired] = useState(false);
   const [userToDelete, setUserToDelete] = useState<string | null>(null);
+  const [cropToClose, setCropToClose] = useState<Crop | null>(null);
+  const [cropToReopen, setCropToReopen] = useState<Crop | null>(null);
   const [editingRecord, setEditingRecord] = useState<EditableExpense | null>(null);
 
 
@@ -1234,6 +1327,40 @@ async function deleteUser(username: string) {
   }
 }
 
+async function closeCrop(cropName: string) {
+  void unlockAudio();
+  try {
+    await safeFetch("/.netlify/functions/closeCrop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ crop: cropName }),
+    });
+    play("save");
+    setCropToClose(null);
+    await fetchAll();
+    await loadPlantTrends();
+  } catch {
+    play("error");
+  }
+}
+
+async function reopenCrop(cropName: string) {
+  void unlockAudio();
+  try {
+    await safeFetch("/.netlify/functions/reopenCrop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ crop: cropName }),
+    });
+    play("save");
+    setCropToReopen(null);
+    await fetchAll();
+    await loadPlantTrends();
+  } catch {
+    play("error");
+  }
+}
+
 
 
 async function logout() {
@@ -1256,12 +1383,13 @@ const ledger = splitTotals(expenses);
     const spent = expenses
       .filter((e) => e.crop === c.name && e.amount < 0)
       .reduce((sum, e) => sum + Math.abs(e.amount), 0);
-    const plants = Number(c.plant_count) || 0;
+    const plants = effectivePlantCount(c);
     return {
       name: c.name,
       spent,
       plants,
       perPlant: plants > 0 ? spent / plants : null,
+      closed: isClosedCrop(c),
     };
   });
   const totalPlantSpend = plantSpendKpis.reduce((s, k) => s + k.spent, 0);
@@ -1352,16 +1480,29 @@ const ledger = splitTotals(expenses);
 
         {crops.map((c) => {
           const t = splitTotals(expenses.filter((e) => e.crop === c.name));
+          const closed = isClosedCrop(c);
           return (
             <CounterCard
               key={c.name}
               label={c.name}
               {...t}
               imgSrc="/normalCounter.png"
+              isClosed={closed}
               plantCount={Number(c.plant_count) || 0}
+              closedPlantCount={
+                c.closed_plant_count == null
+                  ? null
+                  : Number(c.closed_plant_count) || 0
+              }
               openTodos={cropTodoCounts[c.name] || 0}
               onClick={() =>
                 navigate(`/crops/${encodeURIComponent(c.name)}/notes`)
+              }
+              onCloseCrop={
+                isAdmin && !closed ? () => setCropToClose(c) : undefined
+              }
+              onReopenCrop={
+                isAdmin && closed ? () => setCropToReopen(c) : undefined
               }
             />
           );
@@ -1456,9 +1597,20 @@ const ledger = splitTotals(expenses);
             {plantSpendKpis.map((k) => (
               <div
                 key={k.name}
-                className="rounded-xl border border-emerald-400/25 bg-emerald-950/25 px-4 py-3"
+                className={`rounded-xl border px-4 py-3 ${
+                  k.closed
+                    ? "border-stone-500/30 bg-stone-950/40 opacity-85"
+                    : "border-emerald-400/25 bg-emerald-950/25"
+                }`}
               >
-                <p className="text-sm text-gold truncate font-medium">{k.name}</p>
+                <p className="text-sm text-gold truncate font-medium">
+                  {k.name}
+                  {k.closed ? (
+                    <span className="ml-2 text-[10px] uppercase tracking-wider text-stone-400">
+                      Closed
+                    </span>
+                  ) : null}
+                </p>
                 <p className="font-display text-2xl text-emerald-300 mt-1">
                   {k.perPlant == null ? (
                     "—"
@@ -1472,8 +1624,10 @@ const ledger = splitTotals(expenses);
                 </p>
                 <p className="text-[11px] text-gold-muted mt-1">
                   <Money value={k.spent} /> spent ÷ {k.plants.toLocaleString()}{" "}
-                  plants
-                  {k.plants === 0 ? " · set plant count in notes" : ""}
+                  {k.closed ? "plants at close" : "plants"}
+                  {!k.closed && k.plants === 0
+                    ? " · set plant count in notes"
+                    : ""}
                 </p>
               </div>
             ))}
@@ -1556,6 +1710,38 @@ const ledger = splitTotals(expenses);
         onCancel={() => setUserToDelete(null)}
         onConfirm={() => {
           if (userToDelete) void deleteUser(userToDelete);
+        }}
+      />
+
+      <ConfirmModal
+        open={!!cropToClose}
+        title="Close this plantation?"
+        message={
+          cropToClose
+            ? `“${cropToClose.name}” will be marked Closed. Plant count (${Number(cropToClose.plant_count) || 0}) is saved for P&L, then set to 0 for ops. Ledger totals stay. You can reopen later.`
+            : undefined
+        }
+        confirmLabel="Close crop"
+        danger={false}
+        onCancel={() => setCropToClose(null)}
+        onConfirm={() => {
+          if (cropToClose) void closeCrop(cropToClose.name);
+        }}
+      />
+
+      <ConfirmModal
+        open={!!cropToReopen}
+        title="Reopen this plantation?"
+        message={
+          cropToReopen
+            ? `Restore “${cropToReopen.name}” to active and set plant count back to ${Number(cropToReopen.closed_plant_count) || 0} (from close snapshot).`
+            : undefined
+        }
+        confirmLabel="Reopen"
+        danger={false}
+        onCancel={() => setCropToReopen(null)}
+        onConfirm={() => {
+          if (cropToReopen) void reopenCrop(cropToReopen.name);
         }}
       />
 

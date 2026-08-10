@@ -2,6 +2,8 @@ import { Handler } from "@netlify/functions";
 import pool from "./db";
 import { requireAdmin } from "../../src/utils/requireAuth";
 import { invalidate } from "./utils/memoryCache";
+import { ensureCropStatusColumns } from "./utils/cropStatusDb";
+import { ensureCropPlantCountColumn } from "./utils/cropPlantCountDb";
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -15,6 +17,9 @@ const baseHandler: Handler = async (event) => {
   }
 
   try {
+    await ensureCropPlantCountColumn();
+    await ensureCropStatusColumns();
+
     const res = await pool.query(
       `
       INSERT INTO crops (name)
@@ -27,7 +32,11 @@ const baseHandler: Handler = async (event) => {
     invalidate("crops:");
     return {
       statusCode: 200,
-      body: JSON.stringify(res.rows[0]),
+      body: JSON.stringify({
+        ...res.rows[0],
+        plant_count: 0,
+        status: "active",
+      }),
     };
   } catch (err: any) {
     if (err.code === "23505" || err.code === "ER_DUP_ENTRY" || err.errno === 1062) {

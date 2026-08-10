@@ -175,6 +175,19 @@ export type FertilizerRateConfig = {
   weeks: RescueWeek[];
 };
 
+export function emptyFertilizerRateConfig(): FertilizerRateConfig {
+  return {
+    mixtureRates: {
+      year1: { first: 0, second: 0 },
+      year2: { first: 0, second: 0 },
+      year3: { first: 0, second: 0 },
+    },
+    tankLiters: 10,
+    intervals: {},
+    weeks: [],
+  };
+}
+
 export function defaultFertilizerRateConfig(): FertilizerRateConfig {
   return {
     mixtureRates: structuredClone(PEPPER_MIXTURE.rates),
@@ -182,6 +195,10 @@ export function defaultFertilizerRateConfig(): FertilizerRateConfig {
     intervals: { "0": 180, "1": 42, "2": 14, "3": 28, "4": 7 },
     weeks: structuredClone(RESCUE_WEEKS),
   };
+}
+
+export function hasFertilizerRates(config: FertilizerRateConfig): boolean {
+  return Array.isArray(config.weeks) && config.weeks.length > 0;
 }
 
 export function gramsFromConfig(

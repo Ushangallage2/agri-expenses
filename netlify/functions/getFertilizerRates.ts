@@ -5,10 +5,20 @@ import { cached } from "./utils/memoryCache";
 
 const TTL_MS = 60_000;
 
-const baseHandler: Handler = async () => {
+const baseHandler: Handler = async (event) => {
   try {
-    const body = await cached("fertilizerRates:config", TTL_MS, async () => {
-      const config = await getFertilizerRateConfig();
+    const crop = String(event.queryStringParameters?.crop || "").trim();
+    if (!crop) {
+      return {
+        statusCode: 400,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ error: "crop is required" }),
+      };
+    }
+
+    const cacheKey = `fertilizerRates:${crop.toLowerCase()}`;
+    const body = await cached(cacheKey, TTL_MS, async () => {
+      const config = await getFertilizerRateConfig(crop);
       return JSON.stringify(config);
     });
 

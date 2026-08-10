@@ -1,8 +1,12 @@
 import pool from "../db";
 import { ensureCropNotesTable } from "./cropNotesDb";
 import { ensureCropPlantCountColumn } from "./cropPlantCountDb";
+import { ensureCropStatusColumns } from "./cropStatusDb";
 import { ensureFertilizerTables } from "./fertilizerDb";
-import { getFertilizerRateConfig } from "./fertilizerRateConfigDb";
+import {
+  getFertilizerRateConfig,
+  hasFertilizerRates,
+} from "./fertilizerRateConfigDb";
 
 /** Idempotent source key for auto fertilizer due todos. */
 export function fertDueSource(cropName: string, week: number): string {
@@ -145,11 +149,28 @@ async function upsertOpenTodo(
 export async function syncFertilizerDueTodos(): Promise<void> {
   await ensureCropNotesTable();
   await ensureCropPlantCountColumn();
+  await ensureCropStatusColumns();
   await ensureFertilizerTables();
 
-  const config = await getFertilizerRateConfig();
+  // Closed / idle plantations should not keep fertilizer due todos open
+  try {
+    await pool.query(
+      `UPDATE crop_notes cn
+       INNER JOIN crops c ON c.name = cn.crop_name
+       SET cn.completed = 1
+       WHERE cn.entry_type = 'todo'
+         AND cn.completed = 0
+         AND cn.source LIKE 'fert_due:%'
+         AND (c.status = 'closed' OR c.plant_count <= 1)`
+    );
+  } catch {
+    /* ignore if join/columns unavailable mid-migrate */
+  }
+
   const crops = await pool.query(
-    `SELECT name, plant_count FROM crops WHERE plant_count > 1`
+    `SELECT name, plant_count FROM crops
+     WHERE plant_count > 1
+       AND COALESCE(status, 'active') <> 'closed'`
   );
 
   const now = new Date();
@@ -157,6 +178,9 @@ export async function syncFertilizerDueTodos(): Promise<void> {
   for (const crop of crops.rows as { name: string; plant_count: number }[]) {
     const cropName = String(crop.name);
     const plantCount = Number(crop.plant_count) || 0;
+    const config = await getFertilizerRateConfig(cropName);
+    // Empty / unset rates for this crop → no due todos (do not fall back).
+    if (!hasFertilizerRates(config)) continue;
 
     for (const weekDef of config.weeks) {
       const week = weekDef.week;

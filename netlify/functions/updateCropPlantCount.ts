@@ -2,6 +2,10 @@ import type { Handler } from "@netlify/functions";
 import pool from "./db";
 import { ensureCropPlantCountColumn } from "./utils/cropPlantCountDb";
 import { recordPlantCountHistory } from "./utils/cropPlantCountHistoryDb";
+import {
+  ensureCropStatusColumns,
+  isCropClosed,
+} from "./utils/cropStatusDb";
 import { isErrorResponse, requireAdminUser } from "./utils/session";
 import { invalidate } from "./utils/memoryCache";
 
@@ -29,6 +33,23 @@ export const handler: Handler = async (event) => {
     }
 
     await ensureCropPlantCountColumn();
+    await ensureCropStatusColumns();
+
+    const existing = await pool.query(
+      `SELECT status FROM crops WHERE name = $1`,
+      [name]
+    );
+    if (!existing.rowCount) {
+      return { statusCode: 404, body: JSON.stringify({ error: "Crop not found" }) };
+    }
+    if (isCropClosed(existing.rows[0].status)) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          error: "Crop is closed — reopen before changing plant count",
+        }),
+      };
+    }
 
     const res = await pool.query(
       `UPDATE crops SET plant_count = $1 WHERE name = $2`,

@@ -441,6 +441,59 @@
   color: rgba(167, 243, 208, 0.9);
 }
 
+.plant-count-badge--closed {
+  border-color: rgba(168, 162, 158, 0.55);
+  background: linear-gradient(
+    135deg,
+    rgba(41, 37, 36, 0.95),
+    rgba(87, 83, 78, 0.45)
+  );
+  color: #d6d3d1;
+  box-shadow:
+    0 0 10px rgba(120, 113, 108, 0.35),
+    inset 0 0 10px rgba(168, 162, 158, 0.08);
+  animation: none;
+}
+
+.plant-count-badge--closed .plant-count-badge__value {
+  color: #f5f5f4;
+  text-shadow: none;
+}
+
+.plant-count-badge--closed .plant-count-badge__label {
+  color: rgba(214, 211, 209, 0.9);
+}
+
+.crop-closed-badge {
+  position: absolute;
+  top: 0.45rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: 0.18rem 0.55rem;
+  border-radius: 0.4rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #e7e5e4;
+  background: rgba(28, 25, 23, 0.88);
+  border: 1px solid rgba(168, 162, 158, 0.45);
+  pointer-events: none;
+}
+
+.crop-closed-badge--inline {
+  position: static;
+  transform: none;
+  display: inline-flex;
+  pointer-events: auto;
+}
+
+.counter-ring--closed {
+  filter: saturate(0.55);
+  opacity: 0.92;
+}
+
 @keyframes plantGlow {
   0%,
   100% {
