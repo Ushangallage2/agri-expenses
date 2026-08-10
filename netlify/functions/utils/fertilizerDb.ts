@@ -150,7 +150,134 @@ export async function ensureFertilizerTables() {
     )
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS purchase_pack_items (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      sort_order INT NOT NULL DEFAULT 0,
+      name VARCHAR(255) NOT NULL,
+      unit VARCHAR(32) NOT NULL DEFAULT 'kg',
+      stock_qty DECIMAL(14, 3) NOT NULL DEFAULT 0,
+      unit_price DECIMAL(14, 2) NOT NULL DEFAULT 0,
+      notes TEXT NULL,
+      UNIQUE KEY uq_purchase_pack_name (name)
+    )
+  `);
+
   ensured = true;
+}
+
+export type PurchasePackItem = {
+  id?: number;
+  sort_order: number;
+  name: string;
+  unit: string;
+  stock_qty: number;
+  unit_price: number;
+  notes: string | null;
+};
+
+export function mapPurchasePackItem(row: Record<string, unknown>): PurchasePackItem {
+  return {
+    id: row.id != null ? Number(row.id) : undefined,
+    sort_order: Number(row.sort_order) || 0,
+    name: String(row.name),
+    unit: String(row.unit || "kg"),
+    stock_qty: toNum(row.stock_qty),
+    unit_price: toNum(row.unit_price),
+    notes: row.notes != null ? String(row.notes) : null,
+  };
+}
+
+/** Seed purchase_pack_items from STARTER_PURCHASE_PACK when the table is empty. */
+export async function ensurePurchasePackSeeded() {
+  await ensureFertilizerTables();
+  const count = await pool.query(
+    `SELECT COUNT(*) AS n FROM purchase_pack_items`
+  );
+  if (toNum(count.rows[0]?.n) > 0) return;
+
+  const { STARTER_PURCHASE_PACK } = await import("./fertilizerRecipes");
+  let order = 0;
+  for (const item of STARTER_PURCHASE_PACK) {
+    await pool.query(
+      `INSERT INTO purchase_pack_items
+        (sort_order, name, unit, stock_qty, unit_price, notes)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        order++,
+        item.name,
+        item.unit,
+        item.stock_qty,
+        item.unit_price,
+        item.notes,
+      ]
+    );
+  }
+}
+
+export async function getPurchasePackItems(): Promise<PurchasePackItem[]> {
+  await ensurePurchasePackSeeded();
+  const rows = await pool.query(
+    `SELECT id, sort_order, name, unit, stock_qty, unit_price, notes
+     FROM purchase_pack_items
+     ORDER BY sort_order ASC, id ASC`
+  );
+  return rows.rows.map((r) => mapPurchasePackItem(r as Record<string, unknown>));
+}
+
+/** Replace all purchase pack rows. Empty array is rejected by callers. */
+export async function savePurchasePackItems(
+  items: Array<{
+    name: string;
+    unit?: string;
+    stock_qty: number;
+    unit_price: number;
+    notes?: string | null;
+  }>
+): Promise<PurchasePackItem[]> {
+  await ensureFertilizerTables();
+
+  const cleaned = items
+    .map((item, i) => ({
+      sort_order: i,
+      name: String(item.name || "").trim(),
+      unit: String(item.unit || "kg").trim() || "kg",
+      stock_qty: Math.max(0, toNum(item.stock_qty)),
+      unit_price: Math.max(0, toNum(item.unit_price)),
+      notes:
+        item.notes != null && String(item.notes).trim()
+          ? String(item.notes).trim()
+          : null,
+    }))
+    .filter((item) => item.name.length > 0);
+
+  if (!cleaned.length) {
+    throw new Error("Purchase pack must have at least one product");
+  }
+
+  const names = cleaned.map((c) => c.name.toLowerCase());
+  if (new Set(names).size !== names.length) {
+    throw new Error("Duplicate product names in purchase pack");
+  }
+
+  await pool.query(`DELETE FROM purchase_pack_items`);
+  for (const item of cleaned) {
+    await pool.query(
+      `INSERT INTO purchase_pack_items
+        (sort_order, name, unit, stock_qty, unit_price, notes)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        item.sort_order,
+        item.name,
+        item.unit,
+        item.stock_qty,
+        item.unit_price,
+        item.notes,
+      ]
+    );
+  }
+
+  return getPurchasePackItems();
 }
 
 export function toNum(value: unknown): number {
@@ -344,8 +471,9 @@ export async function recordPriceHistory(
 
 /**
  * Upsert the purchase pack into inventory.
- * mode=replace_stock: set stock to pack qty
- * mode=add_stock: add pack qty onto existing (default for re-import safety: set if new, skip stock if exists unless force)
+ * mode=add: stock += pack qty; unit_price from pack (default Sync)
+ * mode=set: stock = pack qty; unit_price from pack (admin reset)
+ * mode=add_if_zero: create missing; fill stock only where current is 0 (legacy)
  */
 async function migrateLegacyPepperFertilizerName() {
   const LEGACY = "Pepper fertilizer";
@@ -435,41 +563,68 @@ async function syncWeek3MicronutrientInstructions() {
 }
 
 export async function seedStarterInventory(opts?: {
-  mode?: "set" | "add_if_zero";
+  mode?: "add" | "set" | "add_if_zero";
 }) {
-  const { STARTER_PURCHASE_PACK } = await import("./fertilizerRecipes");
   await ensureFertilizerTables();
   await migrateLegacyPepperFertilizerName();
   await retireObsoleteInventory();
   await syncWeek3MicronutrientInstructions();
-  const mode = opts?.mode || "add_if_zero";
+  const pack = await getPurchasePackItems();
+  const mode = opts?.mode || "add";
   const results: {
     name: string;
     id: number;
     stock_qty: number;
+    unit_price: number;
     created: boolean;
   }[] = [];
 
-  for (const item of STARTER_PURCHASE_PACK) {
+  for (const item of pack) {
     const existing = await pool.query(
-      `SELECT id, stock_qty FROM fertilizers WHERE name = $1`,
+      `SELECT id, stock_qty, unit_price FROM fertilizers WHERE name = $1`,
       [item.name]
     );
 
     if (existing.rows[0]) {
       const id = Number(existing.rows[0].id);
       const current = toNum(existing.rows[0].stock_qty);
+      const prevPrice = toNum(existing.rows[0].unit_price);
       let next = current;
-      if (mode === "set") next = item.stock_qty;
-      else if (mode === "add_if_zero" && current <= 0 && item.stock_qty > 0) {
+      let nextPrice = prevPrice;
+
+      if (mode === "set") {
+        next = item.stock_qty;
+        nextPrice = item.unit_price;
+      } else if (mode === "add") {
+        next = current + item.stock_qty;
+        nextPrice = item.unit_price;
+      } else if (mode === "add_if_zero" && current <= 0 && item.stock_qty > 0) {
         next = item.stock_qty;
       }
 
-      await pool.query(
-        `UPDATE fertilizers SET stock_qty = $1, unit = $2, notes = $3 WHERE id = $4`,
-        [next, item.unit, item.notes, id]
-      );
-      results.push({ name: item.name, id, stock_qty: next, created: false });
+      if (mode === "set" || mode === "add") {
+        await pool.query(
+          `UPDATE fertilizers
+           SET stock_qty = $1, unit = $2, unit_price = $3, notes = $4
+           WHERE id = $5`,
+          [next, item.unit, nextPrice, item.notes, id]
+        );
+        if (nextPrice !== prevPrice) {
+          await recordPriceHistory(id, nextPrice);
+        }
+      } else {
+        await pool.query(
+          `UPDATE fertilizers SET stock_qty = $1, unit = $2, notes = $3 WHERE id = $4`,
+          [next, item.unit, item.notes, id]
+        );
+      }
+      results.push({
+        name: item.name,
+        id,
+        stock_qty: next,
+        unit_price: mode === "add_if_zero" ? prevPrice : nextPrice,
+        created: false,
+      });
     } else {
       const created = await pool.query(
         `INSERT INTO fertilizers (name, unit, stock_qty, unit_price, notes)
@@ -485,6 +640,7 @@ export async function seedStarterInventory(opts?: {
         name: item.name,
         id,
         stock_qty: toNum(created.rows[0].stock_qty),
+        unit_price: item.unit_price,
         created: true,
       });
     }

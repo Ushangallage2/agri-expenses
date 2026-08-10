@@ -41,22 +41,22 @@ const STARTER_PURCHASE_PACK = [
     name: "Dolomite",
     unit: "kg",
     stock_qty: 3,
-    unit_price: 0,
-    notes: "Bought — 3 kg",
+    unit_price: 30,
+    notes: "Bought — 3 kg @ 90/pack → 30/kg",
   },
   {
     name: "Superphosphate",
     unit: "kg",
     stock_qty: 3,
-    unit_price: 0,
-    notes: "Bought — 3 kg",
+    unit_price: 300,
+    notes: "Bought — 3 kg @ 900/pack → 300/kg",
   },
   {
     name: "Urea",
     unit: "kg",
     stock_qty: 2,
-    unit_price: 0,
-    notes: "Bought — 2 kg",
+    unit_price: 310,
+    notes: "Bought — 2 kg @ 620/pack → 310/kg",
   },
   {
     name: "Sulfate of Potash (SOP)",
@@ -69,23 +69,23 @@ const STARTER_PURCHASE_PACK = [
     name: "NPK 19:19:19",
     unit: "kg",
     stock_qty: 2,
-    unit_price: 0,
-    notes: "Bought — 2 kg",
+    unit_price: 600,
+    notes: "Bought — 2 kg @ 1200/pack → 600/kg",
   },
   {
     name: "Compost",
     unit: "kg",
     stock_qty: 20,
-    unit_price: 0,
-    notes: "Bought — 20 kg",
+    unit_price: 40,
+    notes: "Bought — 20 kg @ 800/pack → 40/kg",
   },
   {
     name: "Albert solution",
     unit: "kg",
     stock_qty: 2,
-    unit_price: 0,
+    unit_price: 2300,
     notes:
-      "Bought — 2 kg. Water-soluble balanced fertilizer (~N 10.5%, P₂O₅ 9%, K₂O 16%, Ca ~10%, Mg ~1–2%) with micros (Fe, Mn, Zn, Cu, B). Covers Fe/B — no separate FeSO₄/Borax stock.",
+      "Bought — 2 kg @ 2300/kg (1 kg pack = 2300). Water-soluble balanced fertilizer (~N 10.5%, P₂O₅ 9%, K₂O 16%, Ca ~10%, Mg ~1–2%) with micros (Fe, Mn, Zn, Cu, B). Covers Fe/B — no separate FeSO₄/Borax stock.",
   },
   {
     name: "MgSO4 (Epsom salt)",
@@ -286,18 +286,39 @@ async function main() {
         if (mode === "set") next = item.stock_qty;
         else if (mode === "add_if_zero" && current <= 0) next = item.stock_qty;
 
-        await conn.execute(
-          "UPDATE fertilizers SET stock_qty = ?, unit = ?, notes = ? WHERE id = ?",
-          [next, item.unit, item.notes, id]
+        if (mode === "set") {
+          await conn.execute(
+            "UPDATE fertilizers SET stock_qty = ?, unit = ?, unit_price = ?, notes = ? WHERE id = ?",
+            [next, item.unit, item.unit_price, item.notes, id]
+          );
+          if (item.unit_price > 0) {
+            try {
+              await conn.execute(
+                "INSERT INTO fertilizer_price_history (fertilizer_id, price, recorded_at) VALUES (?, ?, NOW())",
+                [id, item.unit_price]
+              );
+            } catch {
+              /* history table may not exist */
+            }
+          }
+        } else {
+          await conn.execute(
+            "UPDATE fertilizers SET stock_qty = ?, unit = ?, notes = ? WHERE id = ?",
+            [next, item.unit, item.notes, id]
+          );
+        }
+        console.log(
+          `  updated  ${item.name.padEnd(32)} → ${next} ${item.unit}` +
+            (mode === "set" ? ` @ ${item.unit_price}/${item.unit}` : "")
         );
-        console.log(`  updated  ${item.name.padEnd(32)} → ${next} ${item.unit}`);
       } else {
         await conn.execute(
           "INSERT INTO fertilizers (name, unit, stock_qty, unit_price, notes) VALUES (?, ?, ?, ?, ?)",
           [item.name, item.unit, item.stock_qty, item.unit_price, item.notes]
         );
         console.log(
-          `  created  ${item.name.padEnd(32)} → ${item.stock_qty} ${item.unit}`
+          `  created  ${item.name.padEnd(32)} → ${item.stock_qty} ${item.unit}` +
+            (item.unit_price > 0 ? ` @ ${item.unit_price}/${item.unit}` : "")
         );
       }
     }

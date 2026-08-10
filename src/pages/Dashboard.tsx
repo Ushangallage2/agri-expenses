@@ -806,6 +806,7 @@ function ExpenseTable({
   }
 
   async function handleDrop(targetId: string) {
+    if (!canEdit) return;
     if (!draggingId || draggingId === targetId || reordering) return;
 
     const movedId = draggingId;
@@ -867,6 +868,7 @@ function ExpenseTable({
                 <tr
                   key={e.id}
                   onDragOver={(ev) => {
+                    if (!canEdit) return;
                     ev.preventDefault();
                     if (draggingId && draggingId !== id) setOverId(id);
                   }}
@@ -874,6 +876,7 @@ function ExpenseTable({
                     if (overId === id) setOverId(null);
                   }}
                   onDrop={(ev) => {
+                    if (!canEdit) return;
                     ev.preventDefault();
                     void handleDrop(id);
                   }}
@@ -882,23 +885,29 @@ function ExpenseTable({
                   } ${isOver ? "bg-[rgba(212,175,55,0.12)] ring-1 ring-inset ring-[var(--gold)]" : ""}`}
                 >
                   <td className="p-2 text-center">
-                    <span
-                      draggable={!reordering}
-                      onDragStart={(ev) => {
-                        setDraggingId(id);
-                        ev.dataTransfer.effectAllowed = "move";
-                        ev.dataTransfer.setData("text/plain", id);
-                      }}
-                      onDragEnd={() => {
-                        setDraggingId(null);
-                        setOverId(null);
-                      }}
-                      className="inline-flex cursor-grab active:cursor-grabbing select-none text-gold-muted hover:text-gold px-1 py-2 tracking-tighter"
-                      title="Drag to change position / date"
-                      aria-label="Drag to reorder"
-                    >
-                      ⠿
-                    </span>
+                    {canEdit ? (
+                      <span
+                        draggable={!reordering}
+                        onDragStart={(ev) => {
+                          setDraggingId(id);
+                          ev.dataTransfer.effectAllowed = "move";
+                          ev.dataTransfer.setData("text/plain", id);
+                        }}
+                        onDragEnd={() => {
+                          setDraggingId(null);
+                          setOverId(null);
+                        }}
+                        className="inline-flex cursor-grab active:cursor-grabbing select-none text-gold-muted hover:text-gold px-1 py-2 tracking-tighter"
+                        title="Drag to change position / date"
+                        aria-label="Drag to reorder"
+                      >
+                        ⠿
+                      </span>
+                    ) : (
+                      <span className="text-gold-muted/40 select-none px-1">
+                        ·
+                      </span>
+                    )}
                   </td>
                   <td className="p-3 truncate">{e.expender}</td>
                   <td className="p-3 truncate">{e.reason}</td>

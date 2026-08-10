@@ -8,14 +8,26 @@ import {
 import pool from "./db";
 import { invalidate } from "./utils/memoryCache";
 
+type SyncMode = "add" | "set" | "add_if_zero";
+
+function parseMode(raw: unknown): SyncMode {
+  if (raw === "set" || raw === "add_if_zero" || raw === "add") return raw;
+  return "add";
+}
+
+const HINTS: Record<SyncMode, string> = {
+  add: "Purchase quantities were added to current stock; unit prices updated from the pack.",
+  set: "Stock quantities and unit prices were set from your purchase pack.",
+  add_if_zero: "Created missing products; filled stock only where it was zero.",
+};
+
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
 
   const body = JSON.parse(event.body || "{}");
-  const mode =
-    body.mode === "set" ? "set" : ("add_if_zero" as "set" | "add_if_zero");
+  const mode = parseMode(body.mode);
 
   try {
     await ensureFertilizerTables();
@@ -34,10 +46,7 @@ const baseHandler: Handler = async (event) => {
         fertilizers: all.rows.map((r) =>
           mapFertilizer(r as Record<string, unknown>)
         ),
-        hint:
-          mode === "set"
-            ? "Stock quantities were set to your purchase pack amounts."
-            : "Created missing products; filled stock only where it was zero.",
+        hint: HINTS[mode],
       }),
     };
   } catch (err: any) {

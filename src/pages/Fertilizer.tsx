@@ -33,6 +33,14 @@ type Fertilizer = {
   created_at: string;
 };
 
+type PurchasePackDraft = {
+  name: string;
+  unit: string;
+  stock_qty: string;
+  unit_price: string;
+  notes: string;
+};
+
 type ScheduleStep = {
   id?: number;
   step_order: number;
@@ -340,6 +348,10 @@ export default function FertilizerPage() {
   );
   const [ratesSaving, setRatesSaving] = useState(false);
 
+  /** Editable purchase pack used by “Add purchases to stock”. */
+  const [purchasePack, setPurchasePack] = useState<PurchasePackDraft[]>([]);
+  const [purchasePackSaving, setPurchasePackSaving] = useState(false);
+
   const cropSchedules = useMemo(
     () =>
       schedules.filter(
@@ -349,11 +361,6 @@ export default function FertilizerPage() {
           s.crop_name.toLowerCase() === selectedCrop.toLowerCase()
       ),
     [schedules, selectedCrop]
-  );
-
-  const templateSchedules = useMemo(
-    () => schedules.filter((s) => s.crop_name == null),
-    [schedules]
   );
 
   const activeSchedule = useMemo(
@@ -391,13 +398,19 @@ export default function FertilizerPage() {
   }, [cropParam]);
 
   useEffect(() => {
-    if (!selectedCrop) return;
+    if (!selectedCrop) {
+      setSchedules([]);
+      setActiveScheduleId(null);
+      clearScheduleForm();
+      return;
+    }
     void loadSchedules(selectedCrop);
     void loadApplications(selectedCrop);
   }, [selectedCrop]);
 
   useEffect(() => {
     if (!applyCrop) {
+      // Do not keep another crop’s rates visible when nothing is selected.
       setRateConfig(defaultFertilizerRateConfig());
       return;
     }
@@ -454,29 +467,29 @@ export default function FertilizerPage() {
     return g;
   }, [rateConfig, plantAge, monsoon, halveWithGliricidia]);
 
-  const scheduleNeeds = useMemo(
-    () =>
-      buildScheduleNeeds({
-        weeks: rateWeeks,
-        mixturePerPlant,
-        vines: vinesN,
-        tanks: tanksN,
-        plantAge,
-        monsoon,
-        halveWithGliricidia,
-        tankLiters: rateConfig.tankLiters || 10,
-      }),
-    [
-      rateWeeks,
+  const scheduleNeeds = useMemo(() => {
+    if (!applyCrop) return [];
+    return buildScheduleNeeds({
+      weeks: rateWeeks,
       mixturePerPlant,
-      vinesN,
-      tanksN,
+      vines: vinesN,
+      tanks: tanksN,
       plantAge,
       monsoon,
       halveWithGliricidia,
-      rateConfig.tankLiters,
-    ]
-  );
+      tankLiters: rateConfig.tankLiters || 10,
+    });
+  }, [
+    applyCrop,
+    rateWeeks,
+    mixturePerPlant,
+    vinesN,
+    tanksN,
+    plantAge,
+    monsoon,
+    halveWithGliricidia,
+    rateConfig.tankLiters,
+  ]);
 
   const scheduleNeedsWithCost = useMemo(() => {
     return scheduleNeeds.map((block) => ({
@@ -716,7 +729,7 @@ export default function FertilizerPage() {
   }
 
   async function saveRateConfig() {
-    if (!ratesDraft) return;
+    if (!isAdmin || !ratesDraft) return;
     if (!selectedCrop) {
       setError("Select a crop before saving fertilizer rates.");
       return;
@@ -757,12 +770,16 @@ export default function FertilizerPage() {
     setLoading(true);
     setError("");
     try {
-      await Promise.all([
+      const tasks: Promise<void>[] = [
         loadCrops(),
         loadFertilizers(),
-        loadSchedules(selectedCrop || undefined),
-        loadApplications(selectedCrop || undefined),
-      ]);
+        loadPurchasePack(),
+      ];
+      if (selectedCrop) {
+        tasks.push(loadSchedules(selectedCrop));
+        tasks.push(loadApplications(selectedCrop));
+      }
+      await Promise.all(tasks);
       const cropForRates = applyCrop || selectedCrop || cropParam;
       if (cropForRates) {
         const cfg = await loadRateConfig(cropForRates);
@@ -774,6 +791,91 @@ export default function FertilizerPage() {
       setError(e?.message || "Failed to load");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadPurchasePack() {
+    const res = await apiFetch("/getPurchasePack");
+    if (res.status === 401) {
+      navigate("/login");
+      return;
+    }
+    if (!res.ok) throw new Error(await readError(res));
+    const data = await res.json();
+    const items = Array.isArray(data.items) ? data.items : [];
+    setPurchasePack(
+      items.map(
+        (row: {
+          name?: string;
+          unit?: string;
+          stock_qty?: number;
+          unit_price?: number;
+          notes?: string | null;
+        }) => ({
+          name: String(row.name || ""),
+          unit: String(row.unit || "kg"),
+          stock_qty: String(row.stock_qty ?? 0),
+          unit_price: String(row.unit_price ?? 0),
+          notes: row.notes != null ? String(row.notes) : "",
+        })
+      )
+    );
+  }
+
+  async function savePurchasePack() {
+    if (!isAdmin) return;
+    void unlockAudio();
+    play("click");
+    setPurchasePackSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const items = purchasePack
+        .map((row) => ({
+          name: row.name.trim(),
+          unit: row.unit.trim() || "kg",
+          stock_qty: Number(row.stock_qty) || 0,
+          unit_price: Number(row.unit_price) || 0,
+          notes: row.notes.trim() || null,
+        }))
+        .filter((row) => row.name.length > 0);
+      if (!items.length) {
+        throw new Error("Add at least one purchase pack product");
+      }
+      const res = await apiFetch("/savePurchasePack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const data = await res.json();
+      const saved = Array.isArray(data.items) ? data.items : [];
+      setPurchasePack(
+        saved.map(
+          (row: {
+            name?: string;
+            unit?: string;
+            stock_qty?: number;
+            unit_price?: number;
+            notes?: string | null;
+          }) => ({
+            name: String(row.name || ""),
+            unit: String(row.unit || "kg"),
+            stock_qty: String(row.stock_qty ?? 0),
+            unit_price: String(row.unit_price ?? 0),
+            notes: row.notes != null ? String(row.notes) : "",
+          })
+        )
+      );
+      play("save");
+      setMessage(
+        "Purchase pack saved. Use “Add purchases to stock” to add these quantities to inventory."
+      );
+    } catch (e: any) {
+      play("error");
+      setError(e?.message || "Failed to save purchase pack");
+    } finally {
+      setPurchasePackSaving(false);
     }
   }
 
@@ -807,7 +909,14 @@ export default function FertilizerPage() {
     setUseCrop((prev) => (prev && !names.includes(prev) ? "" : prev));
   }
 
-  async function importPurchasePack(mode: "add_if_zero" | "set") {
+  async function importPurchasePack(mode: "add" | "set" | "add_if_zero") {
+    if (!isAdmin) return;
+    if (mode === "set") {
+      const ok = window.confirm(
+        "Reset stock to pack quantities?\n\nThis REPLACES current stock with the purchase pack amounts (does not add). Unit prices will also be set from the pack."
+      );
+      if (!ok) return;
+    }
     void unlockAudio();
     play("click");
     setSaving(true);
@@ -826,11 +935,17 @@ export default function FertilizerPage() {
       if (!res.ok) throw new Error(await readError(res));
       const data = await res.json();
       setFertilizers(data.fertilizers || []);
+      await loadPurchasePack();
       play("save");
       setMessage(
-        mode === "set"
-          ? "Purchase pack loaded — stock set to bought amounts (40 kg Mixtures · 5 kg MgSO₄)."
-          : "Purchase pack synced — missing products added; empty stocks filled."
+        mode === "add"
+          ? data.hint ||
+              "Purchases added to stock — quantities summed; unit prices updated."
+          : mode === "set"
+            ? data.hint ||
+                "Stock reset to pack quantities and unit prices updated."
+            : data.hint ||
+                "Purchase pack synced — missing products added; empty stocks filled."
       );
     } catch (e: any) {
       play("error");
@@ -850,6 +965,7 @@ export default function FertilizerPage() {
 
   async function applyRescueWeek(e: FormEvent) {
     e.preventDefault();
+    if (!isAdmin) return;
     if (!applyCrop) {
       setError("Select a crop first");
       return;
@@ -1064,6 +1180,7 @@ export default function FertilizerPage() {
 
   async function saveFertilizer(e: FormEvent) {
     e.preventDefault();
+    if (!isAdmin) return;
     void unlockAudio();
     play("click");
     setSaving(true);
@@ -1100,6 +1217,7 @@ export default function FertilizerPage() {
   }
 
   async function doRestock() {
+    if (!isAdmin) return;
     if (restockId == null) return;
     const delta = Number(restockAmount);
     if (!(delta > 0)) {
@@ -1132,6 +1250,7 @@ export default function FertilizerPage() {
   }
 
   async function removeFertilizer(id: number) {
+    if (!isAdmin) return;
     void unlockAudio();
     setSaving(true);
     setError("");
@@ -1178,6 +1297,7 @@ export default function FertilizerPage() {
 
   async function logUsage(e: FormEvent) {
     e.preventDefault();
+    if (!isAdmin) return;
     void unlockAudio();
     play("click");
     setSaving(true);
@@ -1217,6 +1337,7 @@ export default function FertilizerPage() {
   }
 
   async function removeApplication(id: number) {
+    if (!isAdmin) return;
     void unlockAudio();
     setSaving(true);
     setError("");
@@ -1244,6 +1365,7 @@ export default function FertilizerPage() {
   }
 
   async function seedPepperTemplate() {
+    if (!isAdmin) return;
     if (!selectedCrop) {
       play("error");
       setError("Pick a crop first to attach the cycle template.");
@@ -1278,6 +1400,7 @@ export default function FertilizerPage() {
   }
 
   async function ensureGlobalTemplate() {
+    if (!isAdmin) return;
     void unlockAudio();
     play("click");
     setSaving(true);
@@ -1290,8 +1413,8 @@ export default function FertilizerPage() {
       });
       if (!res.ok) throw new Error(await readError(res));
       play("save");
-      setMessage("Global 4-week template ready.");
-      await loadSchedules(selectedCrop || undefined);
+      setMessage("Global 4-week template ready (used when seeding a crop).");
+      if (selectedCrop) await loadSchedules(selectedCrop);
     } catch (err: any) {
       play("error");
       setError(err?.message || "Failed to create template");
@@ -1301,6 +1424,7 @@ export default function FertilizerPage() {
   }
 
   function startNewSchedule() {
+    if (!isAdmin || !selectedCrop) return;
     void unlockAudio();
     play("click");
     setActiveScheduleId(null);
@@ -1321,12 +1445,14 @@ export default function FertilizerPage() {
   }
 
   function updateStep(index: number, patch: Partial<ScheduleStep>) {
+    if (!isAdmin) return;
     setSchedSteps((prev) =>
       prev.map((s, i) => (i === index ? { ...s, ...patch } : s))
     );
   }
 
   function addStepRow() {
+    if (!isAdmin) return;
     setSchedSteps((prev) => [
       ...prev,
       {
@@ -1343,6 +1469,7 @@ export default function FertilizerPage() {
   }
 
   function removeStepRow(index: number) {
+    if (!isAdmin) return;
     setSchedSteps((prev) =>
       prev
         .filter((_, i) => i !== index)
@@ -1352,6 +1479,7 @@ export default function FertilizerPage() {
 
   async function saveScheduleForm(e: FormEvent) {
     e.preventDefault();
+    if (!isAdmin) return;
     if (!selectedCrop && !activeSchedule?.crop_name) {
       // allow saving template edits when active is template
     }
@@ -1402,6 +1530,7 @@ export default function FertilizerPage() {
   }
 
   async function removeSchedule(id: number) {
+    if (!isAdmin) return;
     void unlockAudio();
     setSaving(true);
     setError("");
@@ -1472,8 +1601,8 @@ export default function FertilizerPage() {
 
       {isObserve && (
         <div className="observe-banner mb-4">
-          Observe mode — unit prices are blurred; stock edits and apply are
-          admin-only.
+          Observe mode — unit prices are blurred; view only (no edits, apply,
+          sync, or deletes).
         </div>
       )}
 
@@ -1526,16 +1655,36 @@ export default function FertilizerPage() {
                   </p>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="glass-btn gold-btn"
-                    disabled={saving}
-                    onClick={() => void importPurchasePack("set")}
-                  >
-                    Sync inventory from purchases
-                  </button>
+                <div className="flex flex-wrap gap-2 items-center">
+                  {isAdmin && (
+                    <>
+                      <button
+                        type="button"
+                        className="glass-btn gold-btn"
+                        disabled={saving}
+                        onClick={() => void importPurchasePack("add")}
+                        title="Adds purchase pack quantities onto current stock; updates unit prices"
+                      >
+                        Add purchases to stock
+                      </button>
+                      <button
+                        type="button"
+                        className="glass-btn text-sm"
+                        disabled={saving}
+                        onClick={() => void importPurchasePack("set")}
+                        title="Admin only: replace stock with pack quantities"
+                      >
+                        Reset stock to pack
+                      </button>
+                    </>
+                  )}
                 </div>
+                {isAdmin && (
+                  <p className="text-xs text-gold-muted leading-relaxed">
+                    Sync adds these quantities to current inventory (does not
+                    replace stock). Use Reset only if you need to overwrite.
+                  </p>
+                )}
 
                 <form onSubmit={applyRescueWeek} className="space-y-3">
                   <label className="block">
@@ -1558,6 +1707,19 @@ export default function FertilizerPage() {
                     </select>
                   </label>
 
+                  {!applyCrop ? (
+                    <div className="rounded-xl border border-amber-400/35 bg-amber-950/25 px-4 py-6 text-center space-y-2">
+                      <p className="font-display text-lg text-gold">
+                        Select a crop
+                      </p>
+                      <p className="text-sm text-gold-muted leading-relaxed">
+                        Choose a crop above to see that crop&apos;s weeks, rates,
+                        and totals. Nothing is shown until a crop is selected
+                        (or opened via a crop link).
+                      </p>
+                    </div>
+                  ) : (
+                  <>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <label className="block">
                       <span className="eyebrow mb-1 flex items-center gap-2 flex-wrap">
@@ -2084,22 +2246,27 @@ export default function FertilizerPage() {
                   <button
                     type="submit"
                     className={`glass-btn gold-btn w-full ${
-                      saving || !applyCrop ? "opacity-50" : ""
+                      saving || !applyCrop || !isAdmin ? "opacity-50" : ""
                     }`}
                     disabled={
                       saving ||
                       !applyCrop ||
+                      !isAdmin ||
                       activeRescueWeek.lines.length === 0
                     }
                   >
                     {saving
                       ? "Logging…"
-                      : pepperMixturesActive
+                      : !isAdmin
+                        ? "Observe — view only"
+                        : pepperMixturesActive
                         ? extraRound
                           ? "Log Extra round, stock & expense"
                           : "Log Mixtures, stock & expense"
                         : `Log ${weekScheduleButtonLabel(activeRescueWeek)}, stock & expense`}
                   </button>
+                  </>
+                  )}
                 </form>
               </section>
 
@@ -2134,12 +2301,16 @@ export default function FertilizerPage() {
                         )}
                       </>
                     ) : (
-                      <>Pick a crop — totals use that crop’s plant count.</>
+                      <>Select a crop to see that crop&apos;s week totals.</>
                     )}
                   </p>
                 </div>
 
-                {vinesN <= 0 ? (
+                {!applyCrop ? (
+                  <p className="text-amber-200/90 text-sm rounded-lg border border-amber-400/30 bg-amber-950/20 px-3 py-4 text-center">
+                    Select a crop — no rates or totals are shown until then.
+                  </p>
+                ) : vinesN <= 0 ? (
                   <p className="text-amber-200/90 text-sm rounded-lg border border-amber-400/30 bg-amber-950/20 px-3 py-2">
                     Set vines / plant count to see week totals.
                   </p>
@@ -2271,21 +2442,37 @@ export default function FertilizerPage() {
 
           {tab === "inventory" && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="space-y-6">
+              {isAdmin && (
               <section className="glass-card gold-sheen">
                 <p className="eyebrow">Catalog</p>
                 <h2 className="font-display text-xl text-gold mb-4">
                   {editId ? "Edit fertilizer" : "Add fertilizer"}
                 </h2>
-                <div className="flex flex-wrap gap-2 mb-4">
+                <div className="flex flex-wrap gap-2 mb-4 items-center">
                   <button
                     type="button"
                     className="glass-btn gold-btn text-sm"
                     disabled={saving}
-                    onClick={() => void importPurchasePack("set")}
+                    onClick={() => void importPurchasePack("add")}
+                    title="Adds purchase pack quantities onto current stock; updates unit prices"
                   >
-                    Sync inventory from purchases
+                    Add purchases to stock
+                  </button>
+                  <button
+                    type="button"
+                    className="glass-btn text-sm"
+                    disabled={saving}
+                    onClick={() => void importPurchasePack("set")}
+                    title="Admin only: replace stock with pack quantities"
+                  >
+                    Reset stock to pack
                   </button>
                 </div>
+                <p className="text-xs text-gold-muted mb-4 leading-relaxed">
+                  Sync adds these quantities to current inventory (does not
+                  replace stock).
+                </p>
                 <form onSubmit={saveFertilizer} className="space-y-3">
                   <label className="block">
                     <span className="eyebrow mb-1 block">Name</span>
@@ -2365,6 +2552,191 @@ export default function FertilizerPage() {
                   </div>
                 </form>
               </section>
+              )}
+
+              {isAdmin && (
+              <section className="glass-card gold-sheen space-y-3">
+                <div>
+                  <p className="eyebrow">Purchases</p>
+                  <h2 className="font-display text-xl text-gold">
+                    Edit purchase pack
+                  </h2>
+                  <p className="text-sm text-gold-muted mt-2 leading-relaxed">
+                    Enter this purchase’s qty (kg) and unit price (/kg). Save the
+                    pack, then use <strong>Add purchases to stock</strong> — that
+                    adds these quantities to current inventory and updates
+                    prices (does not replace stock).
+                  </p>
+                </div>
+                <div className="space-y-3 max-h-[50vh] overflow-y-auto custom-scroll pr-1">
+                  {purchasePack.map((row, idx) => (
+                    <div
+                      key={idx}
+                      className="rounded-xl border border-[var(--glass-border)] bg-black/20 p-3 space-y-2"
+                    >
+                      <div className="flex flex-wrap gap-2 items-start">
+                        <label className="block flex-1 min-w-[140px]">
+                          <span className="eyebrow mb-1 block">Product</span>
+                          <input
+                            className="glass-input"
+                            value={row.name}
+                            onChange={(e) =>
+                              setPurchasePack((prev) =>
+                                prev.map((r, i) =>
+                                  i === idx
+                                    ? { ...r, name: e.target.value }
+                                    : r
+                                )
+                              )
+                            }
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="glass-btn text-xs text-red-300 mt-5"
+                          onClick={() => {
+                            play("click");
+                            setPurchasePack((prev) =>
+                              prev.filter((_, i) => i !== idx)
+                            );
+                          }}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <label className="block">
+                          <span className="eyebrow mb-1 block">Qty</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            className="glass-input"
+                            value={row.stock_qty}
+                            onChange={(e) =>
+                              setPurchasePack((prev) =>
+                                prev.map((r, i) =>
+                                  i === idx
+                                    ? { ...r, stock_qty: e.target.value }
+                                    : r
+                                )
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="eyebrow mb-1 block">Unit</span>
+                          <input
+                            className="glass-input"
+                            value={row.unit}
+                            onChange={(e) =>
+                              setPurchasePack((prev) =>
+                                prev.map((r, i) =>
+                                  i === idx
+                                    ? { ...r, unit: e.target.value }
+                                    : r
+                                )
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="eyebrow mb-1 block">
+                            Price / unit
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            className="glass-input"
+                            value={row.unit_price}
+                            onChange={(e) =>
+                              setPurchasePack((prev) =>
+                                prev.map((r, i) =>
+                                  i === idx
+                                    ? { ...r, unit_price: e.target.value }
+                                    : r
+                                )
+                              )
+                            }
+                          />
+                        </label>
+                      </div>
+                      <label className="block">
+                        <span className="eyebrow mb-1 block">Notes</span>
+                        <input
+                          className="glass-input"
+                          value={row.notes}
+                          onChange={(e) =>
+                            setPurchasePack((prev) =>
+                              prev.map((r, i) =>
+                                i === idx
+                                  ? { ...r, notes: e.target.value }
+                                  : r
+                              )
+                            )
+                          }
+                        />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="glass-btn"
+                    onClick={() => {
+                      play("click");
+                      setPurchasePack((prev) => [
+                        ...prev,
+                        {
+                          name: "",
+                          unit: "kg",
+                          stock_qty: "0",
+                          unit_price: "0",
+                          notes: "",
+                        },
+                      ]);
+                    }}
+                  >
+                    + Product
+                  </button>
+                  <button
+                    type="button"
+                    className={`glass-btn gold-btn ${
+                      purchasePackSaving ? "opacity-50" : ""
+                    }`}
+                    disabled={purchasePackSaving}
+                    onClick={() => void savePurchasePack()}
+                  >
+                    {purchasePackSaving ? "Saving…" : "Save purchase pack"}
+                  </button>
+                  <button
+                    type="button"
+                    className="glass-btn gold-btn"
+                    disabled={saving || purchasePackSaving}
+                    onClick={() => void importPurchasePack("add")}
+                    title="Adds purchase pack quantities onto current stock; updates unit prices"
+                  >
+                    Add purchases to stock
+                  </button>
+                  <button
+                    type="button"
+                    className="glass-btn text-sm"
+                    disabled={saving || purchasePackSaving}
+                    onClick={() => void importPurchasePack("set")}
+                    title="Admin only: replace stock with pack quantities"
+                  >
+                    Reset stock to pack
+                  </button>
+                </div>
+                <p className="text-xs text-gold-muted leading-relaxed">
+                  Sync adds these quantities to current inventory (does not
+                  replace stock).
+                </p>
+              </section>
+              )}
+              </div>
 
               <section className="glass-card">
                 <p className="eyebrow">Stock & prices</p>
@@ -2518,6 +2890,9 @@ export default function FertilizerPage() {
                   <h2 className="font-display text-xl text-gold">
                     Crop schedules
                   </h2>
+                  <p className="text-sm text-gold-muted mt-2">
+                    Shows only the selected crop&apos;s schedules.
+                  </p>
                 </div>
 
                 <label className="block">
@@ -2536,94 +2911,102 @@ export default function FertilizerPage() {
                   </select>
                 </label>
 
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="glass-btn gold-btn"
-                    disabled={!selectedCrop || saving}
-                    onClick={() => void seedPepperTemplate()}
-                  >
-                    Use 4-week rescue template
-                  </button>
-                  <button
-                    type="button"
-                    className="glass-btn"
-                    onClick={() => void ensureGlobalTemplate()}
-                    disabled={saving}
-                  >
-                    Ensure global template
-                  </button>
-                  <button
-                    type="button"
-                    className="glass-btn"
-                    disabled={!selectedCrop}
-                    onClick={startNewSchedule}
-                  >
-                    New blank schedule
-                  </button>
-                </div>
-
-                <p className="text-xs text-gold-muted leading-relaxed">
-                  Seeds the advisor rescue plan (soil base → MgSO₄ → micros →
-                  disease). For day-to-day stock sync, use the{" "}
-                  <strong>Apply week</strong> tab.
-                </p>
-
-                {selectedCrop && cropSchedules.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="eyebrow">For {selectedCrop}</p>
-                    {cropSchedules.map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        className={`w-full text-left glass-btn ${
-                          activeScheduleId === s.id ? "gold-btn" : ""
-                        }`}
-                        onClick={() => {
-                          play("click");
-                          setActiveScheduleId(s.id);
-                          fillScheduleForm(s);
-                        }}
-                      >
-                        {s.name} · {s.steps.length} steps
-                      </button>
-                    ))}
+                {!selectedCrop ? (
+                  <div className="rounded-xl border border-amber-400/35 bg-amber-950/25 px-4 py-6 text-center space-y-2">
+                    <p className="font-display text-lg text-gold">
+                      Select a crop
+                    </p>
+                    <p className="text-sm text-gold-muted leading-relaxed">
+                      Pick a crop to view or manage that crop&apos;s schedule
+                      set only.
+                    </p>
                   </div>
-                )}
+                ) : (
+                  <>
+                    {isAdmin && (
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="glass-btn gold-btn"
+                          disabled={!selectedCrop || saving}
+                          onClick={() => void seedPepperTemplate()}
+                        >
+                          Use 4-week rescue template
+                        </button>
+                        <button
+                          type="button"
+                          className="glass-btn"
+                          onClick={() => void ensureGlobalTemplate()}
+                          disabled={saving}
+                        >
+                          Ensure global template
+                        </button>
+                        <button
+                          type="button"
+                          className="glass-btn"
+                          disabled={!selectedCrop}
+                          onClick={startNewSchedule}
+                        >
+                          New blank schedule
+                        </button>
+                      </div>
+                    )}
 
-                {templateSchedules.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="eyebrow">Global templates</p>
-                    {templateSchedules.map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        className={`w-full text-left glass-btn text-sm ${
-                          activeScheduleId === s.id ? "gold-btn" : ""
-                        }`}
-                        onClick={() => {
-                          play("click");
-                          setActiveScheduleId(s.id);
-                          fillScheduleForm(s);
-                        }}
-                      >
-                        {s.name} (template)
-                      </button>
-                    ))}
-                  </div>
+                    <p className="text-xs text-gold-muted leading-relaxed">
+                      Seeds the advisor rescue plan (soil base → MgSO₄ → micros →
+                      disease). For day-to-day stock sync, use the{" "}
+                      <strong>Apply week</strong> tab.
+                    </p>
+
+                    {cropSchedules.length > 0 ? (
+                      <div className="space-y-2">
+                        <p className="eyebrow">For {selectedCrop}</p>
+                        {cropSchedules.map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            className={`w-full text-left glass-btn ${
+                              activeScheduleId === s.id ? "gold-btn" : ""
+                            }`}
+                            onClick={() => {
+                              play("click");
+                              setActiveScheduleId(s.id);
+                              fillScheduleForm(s);
+                            }}
+                          >
+                            {s.name} · {s.steps.length} steps
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gold-muted text-sm">
+                        No schedules for {selectedCrop} yet
+                        {isAdmin ? " — seed a template or create a blank one." : "."}
+                      </p>
+                    )}
+                  </>
                 )}
               </section>
 
               <section className="glass-card">
                 <p className="eyebrow">Editor</p>
                 <h2 className="font-display text-xl text-gold mb-4">
-                  {activeScheduleId ? "Edit schedule" : "Schedule details"}
+                  {activeScheduleId
+                    ? isAdmin
+                      ? "Edit schedule"
+                      : "Schedule details"
+                    : "Schedule details"}
                 </h2>
 
-                {schedSteps.length === 0 && !schedName ? (
+                {!selectedCrop ? (
                   <p className="text-gold-muted text-sm">
-                    Select a crop, then seed the pepper cycle template or start
-                    a blank schedule.
+                    Select a crop to view its schedules.
+                  </p>
+                ) : schedSteps.length === 0 && !schedName ? (
+                  <p className="text-gold-muted text-sm">
+                    {isAdmin
+                      ? "Select a schedule, or seed the rescue template / start a blank schedule."
+                      : "Select a schedule above to view steps."}
                   </p>
                 ) : (
                   <form onSubmit={saveScheduleForm} className="space-y-3">
@@ -2634,6 +3017,8 @@ export default function FertilizerPage() {
                         value={schedName}
                         onChange={(e) => setSchedName(e.target.value)}
                         required
+                        readOnly={!isAdmin}
+                        disabled={!isAdmin}
                       />
                     </label>
                     <label className="block">
@@ -2642,6 +3027,8 @@ export default function FertilizerPage() {
                         className="glass-input min-h-[80px] resize-y"
                         value={schedDesc}
                         onChange={(e) => setSchedDesc(e.target.value)}
+                        readOnly={!isAdmin}
+                        disabled={!isAdmin}
                       />
                     </label>
 
@@ -2658,13 +3045,15 @@ export default function FertilizerPage() {
                                 ? ` · Week ${step.week_number}`
                                 : ""}
                             </p>
-                            <button
-                              type="button"
-                              className="glass-btn text-xs text-red-300"
-                              onClick={() => removeStepRow(idx)}
-                            >
-                              Remove
-                            </button>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                className="glass-btn text-xs text-red-300"
+                                onClick={() => removeStepRow(idx)}
+                              >
+                                Remove
+                              </button>
+                            )}
                           </div>
                           <div className="grid grid-cols-2 gap-2">
                             <label className="block">
@@ -2680,6 +3069,7 @@ export default function FertilizerPage() {
                                       : null,
                                   })
                                 }
+                                disabled={!isAdmin}
                               />
                             </label>
                             <label className="block">
@@ -2697,6 +3087,7 @@ export default function FertilizerPage() {
                                       : null,
                                   })
                                 }
+                                disabled={!isAdmin}
                               />
                             </label>
                           </div>
@@ -2709,6 +3100,7 @@ export default function FertilizerPage() {
                                 updateStep(idx, { title: e.target.value })
                               }
                               required
+                              disabled={!isAdmin}
                             />
                           </label>
                           <label className="block">
@@ -2723,6 +3115,7 @@ export default function FertilizerPage() {
                                   instructions: e.target.value,
                                 })
                               }
+                              disabled={!isAdmin}
                             />
                           </label>
                           <div className="grid grid-cols-3 gap-2">
@@ -2740,6 +3133,7 @@ export default function FertilizerPage() {
                                       : null,
                                   })
                                 }
+                                disabled={!isAdmin}
                               />
                             </label>
                             <label className="block">
@@ -2750,6 +3144,7 @@ export default function FertilizerPage() {
                                 onChange={(e) =>
                                   updateStep(idx, { unit: e.target.value })
                                 }
+                                disabled={!isAdmin}
                               />
                             </label>
                             <label className="block">
@@ -2766,6 +3161,7 @@ export default function FertilizerPage() {
                                       : null,
                                   })
                                 }
+                                disabled={!isAdmin}
                               >
                                 <option value="">—</option>
                                 {fertilizers.map((f) => (
@@ -2780,34 +3176,36 @@ export default function FertilizerPage() {
                       ))}
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className="glass-btn"
-                        onClick={addStepRow}
-                      >
-                        + Step
-                      </button>
-                      <button
-                        type="submit"
-                        className={`glass-btn gold-btn ${saving ? "opacity-50" : ""}`}
-                        disabled={saving}
-                      >
-                        {saving ? "Saving…" : "Save schedule"}
-                      </button>
-                      {activeScheduleId && (
+                    {isAdmin && (
+                      <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
-                          className="glass-btn text-red-300"
-                          onClick={() => {
-                            play("click");
-                            setConfirmDeleteSched(activeScheduleId);
-                          }}
+                          className="glass-btn"
+                          onClick={addStepRow}
                         >
-                          Delete schedule
+                          + Step
                         </button>
-                      )}
-                    </div>
+                        <button
+                          type="submit"
+                          className={`glass-btn gold-btn ${saving ? "opacity-50" : ""}`}
+                          disabled={saving}
+                        >
+                          {saving ? "Saving…" : "Save schedule"}
+                        </button>
+                        {activeScheduleId && (
+                          <button
+                            type="button"
+                            className="glass-btn text-red-300"
+                            onClick={() => {
+                              play("click");
+                              setConfirmDeleteSched(activeScheduleId);
+                            }}
+                          >
+                            Delete schedule
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </form>
                 )}
               </section>
@@ -2816,6 +3214,7 @@ export default function FertilizerPage() {
 
           {tab === "usage" && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {isAdmin && (
               <section className="glass-card gold-sheen">
                 <p className="eyebrow">Apply</p>
                 <h2 className="font-display text-xl text-gold mb-4">
@@ -2930,6 +3329,7 @@ export default function FertilizerPage() {
                   </button>
                 </form>
               </section>
+              )}
 
               <section className="glass-card">
                 <p className="eyebrow">History</p>
@@ -2973,16 +3373,18 @@ export default function FertilizerPage() {
                               {a.amount} {a.unit}
                             </td>
                             <td className="py-2 text-right">
-                              <button
-                                type="button"
-                                className="glass-btn text-xs text-red-300"
-                                onClick={() => {
-                                  play("click");
-                                  setConfirmDeleteApp(a.id);
-                                }}
-                              >
-                                Undo
-                              </button>
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  className="glass-btn text-xs text-red-300"
+                                  onClick={() => {
+                                    play("click");
+                                    setConfirmDeleteApp(a.id);
+                                  }}
+                                >
+                                  Undo
+                                </button>
+                              )}
                             </td>
                           </tr>
                         ))}

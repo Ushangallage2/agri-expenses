@@ -142,6 +142,7 @@ export default function CropNotes() {
 
   async function savePlantCount(e: React.FormEvent) {
     e.preventDefault();
+    if (!isAdmin) return;
     if (isClosed) {
       setError("Crop is closed — reopen before changing plant count");
       return;
@@ -269,7 +270,7 @@ export default function CropNotes() {
   }, [crop]);
 
   async function onPickFile(file: File | null) {
-    if (!file) return;
+    if (!isAdmin || !file) return;
     try {
       setError(null);
       const { dataUrl } = await compressImageFile(file);
@@ -280,6 +281,7 @@ export default function CropNotes() {
   }
 
   async function uploadGalleryImage(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!isAdmin) return;
     const file = e.target.files?.[0] || null;
     e.target.value = "";
     if (!file) return;
@@ -307,6 +309,7 @@ export default function CropNotes() {
 
   async function addNote(e: React.FormEvent) {
     e.preventDefault();
+    if (!isAdmin) return;
     if (!text.trim() && !pendingImage) return;
     setLoading(true);
     setError(null);
@@ -358,6 +361,7 @@ export default function CropNotes() {
   }
 
   async function toggleTodo(id: number, completed: boolean) {
+    if (!isAdmin) return;
     void unlockAudio();
     play("click");
     try {
@@ -377,6 +381,7 @@ export default function CropNotes() {
   }
 
   async function removeNote(id: number) {
+    if (!isAdmin) return;
     void unlockAudio();
     await fetch(`${API}/deleteCropNote`, {
       method: "POST",
@@ -390,6 +395,7 @@ export default function CropNotes() {
   }
 
   async function removeImage(id: number) {
+    if (!isAdmin) return;
     void unlockAudio();
     const res = await fetch(`${API}/deleteCropImage`, {
       method: "POST",
@@ -544,7 +550,7 @@ export default function CropNotes() {
           </div>
         )}
 
-        {!isClosed && (
+        {!isClosed && isAdmin && (
           <form
             onSubmit={savePlantCount}
             className="mt-4 flex flex-wrap items-end gap-3"
@@ -564,11 +570,19 @@ export default function CropNotes() {
             <button
               type="submit"
               className={`glass-btn gold-btn ${savingPlants ? "opacity-50" : ""}`}
-              disabled={savingPlants || !isAdmin}
+              disabled={savingPlants}
             >
               {savingPlants ? "Saving…" : "Save count"}
             </button>
           </form>
+        )}
+        {!isClosed && !isAdmin && (
+          <p className="mt-4 text-sm text-gold-muted">
+            Plants:{" "}
+            <span className="text-gold tabular-nums">
+              {plantCount || "—"}
+            </span>
+          </p>
         )}
         {plantMessage && (
           <p className="text-emerald-300 text-sm mt-3">{plantMessage}</p>
@@ -592,21 +606,23 @@ export default function CropNotes() {
           onChange={uploadGalleryImage}
         />
 
-        <button
-          type="button"
-          disabled={uploading}
-          onClick={() => fileRef.current?.click()}
-          className="w-full mb-4 rounded-2xl border-2 border-dashed border-[var(--gold-dim)]/70
-                     bg-[rgba(212,175,55,0.06)] hover:bg-[rgba(212,175,55,0.12)]
-                     transition px-4 py-8 text-center cursor-pointer"
-        >
-          <p className="font-display text-2xl text-gold mb-1">
-            {uploading ? "Uploading…" : "Insert image"}
-          </p>
-          <p className="text-sm text-gold-muted">
-            Tap to choose a photo from your device
-          </p>
-        </button>
+        {isAdmin && (
+          <button
+            type="button"
+            disabled={uploading}
+            onClick={() => fileRef.current?.click()}
+            className="w-full mb-4 rounded-2xl border-2 border-dashed border-[var(--gold-dim)]/70
+                       bg-[rgba(212,175,55,0.06)] hover:bg-[rgba(212,175,55,0.12)]
+                       transition px-4 py-8 text-center cursor-pointer"
+          >
+            <p className="font-display text-2xl text-gold mb-1">
+              {uploading ? "Uploading…" : "Insert image"}
+            </p>
+            <p className="text-sm text-gold-muted">
+              Tap to choose a photo from your device
+            </p>
+          </button>
+        )}
 
         {images.length === 0 && (
           <p className="text-gold-muted text-sm text-center pb-2">
@@ -649,6 +665,7 @@ export default function CropNotes() {
         </div>
       </section>
 
+      {isAdmin && (
       <form
         onSubmit={addNote}
         className="glass-card max-w-3xl mx-auto mb-6 space-y-3"
@@ -728,6 +745,32 @@ export default function CropNotes() {
           </button>
         </div>
       </form>
+      )}
+
+      {!isAdmin && (
+        <div className="max-w-3xl mx-auto mb-4 flex justify-end">
+          <div className="entry-type-toggle" role="tablist" aria-label="Notes or todos">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={entryType === "note"}
+              className={entryType === "note" ? "is-active" : ""}
+              onClick={() => setEntryType("note")}
+            >
+              Note
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={entryType === "todo"}
+              className={entryType === "todo" ? "is-active is-todo" : ""}
+              onClick={() => setEntryType("todo")}
+            >
+              Todo
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-3xl mx-auto space-y-3">
         {filteredNotes.length === 0 && (
@@ -752,15 +795,17 @@ export default function CropNotes() {
               }`}
               style={{ animationDelay: `${i * 40}ms` }}
             >
-              <button
-                type="button"
-                className="absolute top-4 right-4 text-red-400/80 hover:text-red-300"
-                onClick={() => setNoteToDelete(n.id)}
-                aria-label="Delete entry"
-              >
-                X
-              </button>
-              <div className="flex flex-wrap items-center gap-2 mb-2 pr-8">
+              {isAdmin && (
+                <button
+                  type="button"
+                  className="absolute top-4 right-4 text-red-400/80 hover:text-red-300"
+                  onClick={() => setNoteToDelete(n.id)}
+                  aria-label="Delete entry"
+                >
+                  X
+                </button>
+              )}
+              <div className={`flex flex-wrap items-center gap-2 mb-2 ${isAdmin ? "pr-8" : ""}`}>
                 <span
                   className={`entry-type-badge ${
                     done
@@ -798,7 +843,7 @@ export default function CropNotes() {
                 <p className="text-sm text-gold-muted">
                   {new Date(n.created_at).toLocaleString()}
                 </p>
-                {type === "todo" && (
+                {type === "todo" && isAdmin && (
                   <button
                     type="button"
                     className="glass-btn text-xs py-1 px-2 ml-auto mr-6"
