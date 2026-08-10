@@ -11,7 +11,10 @@ import {
   gramsFromConfig,
   defaultFertilizerRateConfig,
   defaultFertilizerRateConfigForCrop,
+  defaultTurmericFertilizerRateConfig,
+  defaultTurmericChemicalFertilizerRateConfig,
   isTurmericCropName,
+  isTurmericChemicalRateConfig,
   isPepperMixturesWeek,
   weekScheduleButtonLabel,
   type RescueWeek,
@@ -321,6 +324,10 @@ export default function FertilizerPage() {
   const [confirmDeleteSched, setConfirmDeleteSched] = useState<number | null>(
     null
   );
+  /** Pending turmeric template overwrite: premium | chemical */
+  const [confirmTurmericTemplate, setConfirmTurmericTemplate] = useState<
+    "premium" | "chemical" | null
+  >(null);
 
   // Apply-week wizard
   const [applyCrop, setApplyCrop] = useState(cropParam);
@@ -3408,9 +3415,10 @@ export default function FertilizerPage() {
                   stays shared. Apply week and past-due todos use this crop&apos;s
                   values. Interval days drive missed-apply reminders when plant
                   count &gt; 1. New crops auto-seed a template by name: turmeric /
-                  කහ get the Extra-Premium Turmeric Plan (Phase 1–5); others get
-                  the pepper Mixtures + Week 1–4 rescue plan. Edit and Save to
-                  customize, or Load defaults to reset this crop only.
+                  කහ get the Extra-Premium Turmeric Plan (Phase 1–5) by default;
+                  use Load premium plan / Load chemical schedule to switch.
+                  Others get the pepper Mixtures + Week 1–4 rescue plan. Edit and
+                  Save to customize.
                 </p>
               </div>
 
@@ -3515,8 +3523,9 @@ export default function FertilizerPage() {
                     )}
                     {ratesCropIsTurmeric && (
                       <p className="text-sm text-gold-muted rounded-lg border border-emerald-400/25 bg-emerald-950/20 px-3 py-2">
-                        Turmeric Extra-Premium plan — Phase 1–5 below (no pepper
-                        monsoon mixtures table).
+                        {isTurmericChemicalRateConfig(editingRates)
+                          ? "Turmeric Chemical schedule — Stage 1–3 (Urea / Superphosphate·TSP / MOP). No pepper monsoon mixtures table."
+                          : "Turmeric Extra-Premium plan — Phase 1–5 below (no pepper monsoon mixtures table)."}
                       </p>
                     )}
                   </div>
@@ -3659,19 +3668,46 @@ export default function FertilizerPage() {
                     >
                       Reset draft to saved
                     </button>
-                    <button
-                      type="button"
-                      className="glass-btn"
-                      disabled={ratesSaving || !selectedCrop}
-                      onClick={() => {
-                        setRatesDraft(
-                          defaultFertilizerRateConfigForCrop(selectedCrop)
-                        );
-                        play("click");
-                      }}
-                    >
-                      Load defaults
-                    </button>
+                    {ratesCropIsTurmeric ? (
+                      <>
+                        <button
+                          type="button"
+                          className="glass-btn"
+                          disabled={ratesSaving || !selectedCrop}
+                          onClick={() => {
+                            setConfirmTurmericTemplate("premium");
+                            play("click");
+                          }}
+                        >
+                          Load premium plan
+                        </button>
+                        <button
+                          type="button"
+                          className="glass-btn"
+                          disabled={ratesSaving || !selectedCrop}
+                          onClick={() => {
+                            setConfirmTurmericTemplate("chemical");
+                            play("click");
+                          }}
+                        >
+                          Load chemical schedule
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="glass-btn"
+                        disabled={ratesSaving || !selectedCrop}
+                        onClick={() => {
+                          setRatesDraft(
+                            defaultFertilizerRateConfigForCrop(selectedCrop)
+                          );
+                          play("click");
+                        }}
+                      >
+                        Load defaults
+                      </button>
+                    )}
                   </div>
                 </>
               )}
@@ -3709,6 +3745,31 @@ export default function FertilizerPage() {
         onConfirm={() => {
           if (confirmDeleteSched != null)
             void removeSchedule(confirmDeleteSched);
+        }}
+      />
+      <ConfirmModal
+        open={confirmTurmericTemplate != null}
+        title={
+          confirmTurmericTemplate === "chemical"
+            ? "Load chemical schedule?"
+            : "Load premium plan?"
+        }
+        message={
+          confirmTurmericTemplate === "chemical"
+            ? `Replace the draft rates for ${selectedCrop || "this crop"} with the Urea / TSP / MOP three-stage chemical schedule? Unsaved edits will be lost. Save afterward to persist and seed chemical stage notes.`
+            : `Replace the draft rates for ${selectedCrop || "this crop"} with the Extra-Premium Phase 1–5 plan? Unsaved edits will be lost. Save afterward to persist.`
+        }
+        confirmLabel="Load template"
+        danger={false}
+        onCancel={() => setConfirmTurmericTemplate(null)}
+        onConfirm={() => {
+          if (confirmTurmericTemplate === "chemical") {
+            setRatesDraft(defaultTurmericChemicalFertilizerRateConfig());
+          } else if (confirmTurmericTemplate === "premium") {
+            setRatesDraft(defaultTurmericFertilizerRateConfig());
+          }
+          setConfirmTurmericTemplate(null);
+          play("click");
         }}
       />
     </div>

@@ -1,7 +1,7 @@
 /**
  * Keep aligned with netlify/functions/utils/fertilizerRecipes.ts
- * (shared types, PEPPER_MIXTURE rates, RESCUE_WEEKS, TURMERIC_PHASES —
- * not STARTER_PURCHASE_PACK).
+ * (shared types, PEPPER_MIXTURE rates, RESCUE_WEEKS, TURMERIC_PHASES,
+ * TURMERIC_CHEMICAL_STAGES — not STARTER_PURCHASE_PACK).
  */
 export type RecipeLine = {
   fertilizerName: string;
@@ -296,6 +296,120 @@ export function defaultTurmericFertilizerRateConfig(): FertilizerRateConfig {
   };
 }
 
+/**
+ * Chemical Fertilizer Schedule (per 1,000 plants) — weeks 1–3 = Stage 1–3.
+ * Mix: 12 kg Urea + 10 kg Superphosphate (TSP) + 12 kg MOP = 34 kg / 1000 plants.
+ * Apply 1/3 of the mix at planting, 60 days, and 120 days.
+ * Rates as g/plant so Apply week scales with plant_count (4 / 3.333 / 4 g).
+ * Superphosphate matches existing inventory (TSP); MOP is its own product name.
+ */
+export const TURMERIC_CHEMICAL_STAGES: RescueWeek[] = [
+  {
+    week: 1,
+    title: "Stage 1 — At Planting",
+    summary:
+      "Chemical mix (1/3 of 34 kg / 1000 plants): bury into soil beds with seed rhizomes. " +
+      "Per 1000 plants: Urea 4 kg + Superphosphate (TSP) ≈3.333 kg + MOP 4 kg.",
+    lines: [
+      {
+        fertilizerName: "Urea",
+        mode: "per_plant",
+        gramsPerPlant: 4,
+        tip: "4 kg / 1000 plants (1/3 of 12 kg mix) → 4 g/plant",
+      },
+      {
+        fertilizerName: "Superphosphate",
+        mode: "per_plant",
+        gramsPerPlant: 10 / 3,
+        tip: "TSP 10 kg / 1000 in full mix; 1/3 ≈ 3.333 kg → ≈3.333 g/plant (maps to Superphosphate stock)",
+      },
+      {
+        fertilizerName: "Muriate of Potash (MOP)",
+        mode: "per_plant",
+        gramsPerPlant: 4,
+        tip: "4 kg / 1000 plants (1/3 of 12 kg mix) → 4 g/plant",
+      },
+    ],
+  },
+  {
+    week: 2,
+    title: "Stage 2 — At 60 Days (2 Months)",
+    summary:
+      "Earthing up + second 1/3 of the Urea / TSP / MOP mix. Same rates as Stage 1.",
+    lines: [
+      {
+        fertilizerName: "Urea",
+        mode: "per_plant",
+        gramsPerPlant: 4,
+        tip: "4 g/plant · earthing up with second 1/3",
+      },
+      {
+        fertilizerName: "Superphosphate",
+        mode: "per_plant",
+        gramsPerPlant: 10 / 3,
+        tip: "≈3.333 g/plant (TSP portion)",
+      },
+      {
+        fertilizerName: "Muriate of Potash (MOP)",
+        mode: "per_plant",
+        gramsPerPlant: 4,
+        tip: "4 g/plant",
+      },
+    ],
+  },
+  {
+    week: 3,
+    title: "Stage 3 — At 120 Days (4 Months)",
+    summary:
+      "Final 1/3 of the chemical mix before leaf growth stops. Same rates as Stage 1.",
+    lines: [
+      {
+        fertilizerName: "Urea",
+        mode: "per_plant",
+        gramsPerPlant: 4,
+        tip: "4 g/plant · final 1/3 before leaf growth stops",
+      },
+      {
+        fertilizerName: "Superphosphate",
+        mode: "per_plant",
+        gramsPerPlant: 10 / 3,
+        tip: "≈3.333 g/plant (TSP portion)",
+      },
+      {
+        fertilizerName: "Muriate of Potash (MOP)",
+        mode: "per_plant",
+        gramsPerPlant: 4,
+        tip: "4 g/plant",
+      },
+    ],
+  },
+];
+
+export function defaultTurmericChemicalFertilizerRateConfig(): FertilizerRateConfig {
+  return {
+    mixtureRates: structuredClone(PEPPER_MIXTURE.rates),
+    tankLiters: 1,
+    intervals: { "1": 365, "2": 60, "3": 60 },
+    weeks: structuredClone(TURMERIC_CHEMICAL_STAGES),
+  };
+}
+
+/** True when rate config is the chemical Urea/TSP/MOP three-stage plan. */
+export function isTurmericChemicalRateConfig(
+  config: FertilizerRateConfig | null | undefined
+): boolean {
+  if (!config?.weeks?.length) return false;
+  const hasMop = config.weeks.some((w) =>
+    w.lines.some((l) =>
+      /muriate of potash|\(mop\)/i.test(l.fertilizerName || "")
+    )
+  );
+  const hasStageTitle = config.weeks.some((w) =>
+    /^Stage\s+\d+/i.test(w.title || "")
+  );
+  return hasMop || hasStageTitle;
+}
+
 /** Case-insensitive: turmeric, කහ, or name contains "turmeric". */
 export function isTurmericCropName(cropName: string): boolean {
   const n = String(cropName || "").trim().toLowerCase();
@@ -305,6 +419,7 @@ export function isTurmericCropName(cropName: string): boolean {
   return n === "kaha";
 }
 
+/** Default auto-seed for turmeric crops: Extra-Premium Localized Phase 1–5. */
 export function defaultFertilizerRateConfigForCrop(
   cropName: string
 ): FertilizerRateConfig {
@@ -315,6 +430,8 @@ export function defaultFertilizerRateConfigForCrop(
 
 /** Short Apply-week tab label from week title. */
 export function weekScheduleButtonLabel(w: RescueWeek): string {
+  const stage = w.title.match(/^(Stage\s+\d+)/i);
+  if (stage) return stage[1];
   const phase = w.title.match(/^(Phase\s+\d+)/i);
   if (phase) return phase[1];
   const week = w.title.match(/^(Week\s+\d+)/i);

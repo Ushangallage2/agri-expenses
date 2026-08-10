@@ -3,13 +3,17 @@ import {
   PEPPER_MIXTURE,
   RESCUE_WEEKS,
   TURMERIC_PHASES,
+  TURMERIC_CHEMICAL_STAGES,
   isTurmericCropName,
   type PlantAge,
   type Monsoon,
   type RecipeLine,
   type RescueWeek,
 } from "./fertilizerRecipes";
-import { ensureTurmericPlanNotes } from "./turmericPlanNotes";
+import {
+  ensureTurmericPlanNotes,
+  ensureTurmericChemicalPlanNotes,
+} from "./turmericPlanNotes";
 
 let ensured = false;
 let migratedLegacy = false;
@@ -39,6 +43,31 @@ export function defaultTurmericFertilizerRateConfig(): FertilizerRateConfig {
     intervals: { "1": 365, "2": 21, "3": 14, "4": 11, "5": 60 },
     weeks: structuredClone(TURMERIC_PHASES),
   };
+}
+
+export function defaultTurmericChemicalFertilizerRateConfig(): FertilizerRateConfig {
+  return {
+    mixtureRates: structuredClone(PEPPER_MIXTURE.rates),
+    tankLiters: 1,
+    intervals: { "1": 365, "2": 60, "3": 60 },
+    weeks: structuredClone(TURMERIC_CHEMICAL_STAGES),
+  };
+}
+
+/** True when rate config is the chemical Urea/TSP/MOP three-stage plan. */
+export function isTurmericChemicalRateConfig(
+  config: FertilizerRateConfig | null | undefined
+): boolean {
+  if (!config?.weeks?.length) return false;
+  const hasMop = config.weeks.some((w) =>
+    w.lines.some((l) =>
+      /muriate of potash|\(mop\)/i.test(l.fertilizerName || "")
+    )
+  );
+  const hasStageTitle = config.weeks.some((w) =>
+    /^Stage\s+\d+/i.test(w.title || "")
+  );
+  return hasMop || hasStageTitle;
 }
 
 /** Pepper defaults, or turmeric Extra-Premium plan when crop name matches. */
@@ -237,9 +266,15 @@ function parseStoredConfig(
   rawJson: unknown,
   cropName: string
 ): FertilizerRateConfig {
-  const base = defaultFertilizerRateConfigForCrop(cropName);
+  let base = defaultFertilizerRateConfigForCrop(cropName);
   try {
-    return normalizeRateConfig(JSON.parse(String(rawJson)), base);
+    const raw = JSON.parse(String(rawJson));
+    const peek = normalizeRateConfig(raw, base);
+    if (isTurmericCropName(cropName) && isTurmericChemicalRateConfig(peek)) {
+      base = defaultTurmericChemicalFertilizerRateConfig();
+      return normalizeRateConfig(raw, base);
+    }
+    return peek;
   } catch {
     return structuredClone(base);
   }
@@ -334,7 +369,16 @@ export async function getFertilizerRateConfig(
     console.error("turmeric plan notes ensure:", err);
   }
 
-  return parseStoredConfig(res.rows[0].config_json, crop);
+  const config = parseStoredConfig(res.rows[0].config_json, crop);
+  if (isTurmericChemicalRateConfig(config)) {
+    try {
+      await ensureTurmericChemicalPlanNotes(crop);
+    } catch (err) {
+      console.error("turmeric chemical notes ensure:", err);
+    }
+  }
+
+  return config;
 }
 
 export async function saveFertilizerRateConfig(
@@ -347,10 +391,16 @@ export async function saveFertilizerRateConfig(
   }
 
   await ensureFertilizerRateConfigTable();
-  const config = normalizeRateConfig(
-    raw,
-    defaultFertilizerRateConfigForCrop(crop)
-  );
+  // Prefer chemical base when the payload is the Urea/TSP/MOP stage plan so
+  // intervals/weeks do not pick up leftover Extra-Premium Phase 4–5 keys.
+  let base = defaultFertilizerRateConfigForCrop(crop);
+  if (isTurmericCropName(crop)) {
+    const peek = normalizeRateConfig(raw, base);
+    if (isTurmericChemicalRateConfig(peek)) {
+      base = defaultTurmericChemicalFertilizerRateConfig();
+    }
+  }
+  const config = normalizeRateConfig(raw, base);
   const json = JSON.stringify(config);
 
   const existing = await pool.query(
@@ -390,6 +440,14 @@ export async function saveFertilizerRateConfig(
     await ensureTurmericPlanNotes(crop);
   } catch (err) {
     console.error("turmeric plan notes after save:", err);
+  }
+
+  if (isTurmericChemicalRateConfig(config)) {
+    try {
+      await ensureTurmericChemicalPlanNotes(crop);
+    } catch (err) {
+      console.error("turmeric chemical notes after save:", err);
+    }
   }
 
   return config;

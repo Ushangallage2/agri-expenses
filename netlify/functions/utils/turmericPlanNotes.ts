@@ -8,8 +8,18 @@ export function turmericPlanSource(phase: number): string {
   return `turmeric_plan:phase${phase}`;
 }
 
+/** Idempotent source keys for Chemical Fertilizer Schedule notes. */
+export function turmericChemSource(stage: number): string {
+  return `turmeric_chem:stage${stage}`;
+}
+
 export type TurmericPlanNoteSeed = {
   phase: number;
+  note: string;
+};
+
+export type TurmericChemNoteSeed = {
+  stage: number;
   note: string;
 };
 
@@ -64,6 +74,35 @@ export const TURMERIC_PLAN_NOTE_SEEDS: TurmericPlanNoteSeed[] = [
 ];
 
 /**
+ * Chemical schedule notes (Urea / TSP / MOP three-stage plan).
+ * Seeded only when the chemical rate template is loaded/saved.
+ */
+export const TURMERIC_CHEM_NOTE_SEEDS: TurmericChemNoteSeed[] = [
+  {
+    stage: 1,
+    note:
+      "[Turmeric Chemical · Stage 1] At Planting\n" +
+      "Mix (per 1000 plants): 12 kg Urea + 10 kg TSP (Superphosphate) + 12 kg MOP = 34 kg total.\n" +
+      "• Apply 1/3 of the mix into soil beds when burying seed rhizomes.\n" +
+      "• Per stage / 1000 plants: Urea 4 kg · TSP ≈3.333 kg · MOP 4 kg (≈4 / 3.333 / 4 g per plant).",
+  },
+  {
+    stage: 2,
+    note:
+      "[Turmeric Chemical · Stage 2] At 60 Days (2 Months)\n" +
+      "• Earthing up + apply the second 1/3 of the same Urea / TSP / MOP mix.\n" +
+      "• Same amounts as Stage 1 (4 / ≈3.333 / 4 g per plant).",
+  },
+  {
+    stage: 3,
+    note:
+      "[Turmeric Chemical · Stage 3] At 120 Days (4 Months)\n" +
+      "• Apply the final 1/3 of the mix before leaf growth stops.\n" +
+      "• Same amounts as Stage 1 (4 / ≈3.333 / 4 g per plant).",
+  },
+];
+
+/**
  * Idempotent: insert missing turmeric_plan:phaseN notes for a turmeric crop.
  * No-op for non-turmeric names.
  */
@@ -76,6 +115,43 @@ export async function ensureTurmericPlanNotes(cropName: string): Promise<void> {
 
   for (const seed of TURMERIC_PLAN_NOTE_SEEDS) {
     const source = turmericPlanSource(seed.phase);
+    const existing = await pool.query(
+      `SELECT id FROM crop_notes
+       WHERE crop_name = ? AND source = ? AND entry_type = 'note'
+       LIMIT 1`,
+      [crop, source]
+    );
+    if (existing.rowCount) continue;
+
+    await pool.query(
+      `INSERT INTO crop_notes (crop_name, note, entry_type, completed, source)
+       VALUES (?, ?, 'note', 0, ?)`,
+      [crop, seed.note, source]
+    );
+    inserted += 1;
+  }
+
+  if (inserted > 0) {
+    invalidate(`cropNotes:${crop}`);
+    invalidate("cropNotes:");
+  }
+}
+
+/**
+ * Idempotent: insert missing turmeric_chem:stageN notes for a turmeric crop.
+ * Call when the chemical rate template is loaded/saved. Does not remove premium notes.
+ */
+export async function ensureTurmericChemicalPlanNotes(
+  cropName: string
+): Promise<void> {
+  const crop = String(cropName || "").trim();
+  if (!crop || !isTurmericCropName(crop)) return;
+
+  await ensureCropNotesTable();
+  let inserted = 0;
+
+  for (const seed of TURMERIC_CHEM_NOTE_SEEDS) {
+    const source = turmericChemSource(seed.stage);
     const existing = await pool.query(
       `SELECT id FROM crop_notes
        WHERE crop_name = ? AND source = ? AND entry_type = 'note'
