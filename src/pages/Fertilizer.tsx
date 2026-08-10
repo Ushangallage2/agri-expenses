@@ -11,6 +11,8 @@ import {
   defaultFertilizerRateConfig,
   emptyFertilizerRateConfig,
   hasFertilizerRates,
+  rateConfigForDisplay,
+  weeksForDisplay,
   type RescueWeek,
   type RecipeLine,
   type PlantAge,
@@ -426,11 +428,20 @@ export default function FertilizerPage() {
     });
   }, [tab, selectedCrop]);
 
-  const rateWeeks = rateConfig.weeks || [];
   const cropHasRates = hasFertilizerRates(rateConfig);
+  /** Preview defaults only when a crop is selected and has no saved rates. */
+  const showingRatePreview = Boolean(applyCrop) && !cropHasRates;
+  const displayRateConfig = showingRatePreview
+    ? rateConfigForDisplay(rateConfig)
+    : rateConfig;
+  const displayWeeks = showingRatePreview
+    ? weeksForDisplay(rateConfig)
+    : rateConfig.weeks || [];
 
   const activeRescueWeek: RescueWeek =
-    rateWeeks.find((w) => w.week === applyWeek) || rateWeeks[0] || EMPTY_WEEK;
+    displayWeeks.find((w) => w.week === applyWeek) ||
+    displayWeeks[0] ||
+    EMPTY_WEEK;
 
   const applyCropMeta = useMemo(
     () =>
@@ -444,32 +455,32 @@ export default function FertilizerPage() {
   const tanksN = Math.max(0, Number(tankCount) || 0);
   const isPartialApply = vinesN > 0 && treatedN > 0 && treatedN < vinesN;
   const mixturePerPlant = useMemo(() => {
-    let g = gramsFromConfig(rateConfig, plantAge, monsoon);
+    let g = gramsFromConfig(displayRateConfig, plantAge, monsoon);
     if (halveWithGliricidia) g = g / 2;
     return g;
-  }, [rateConfig, plantAge, monsoon, halveWithGliricidia]);
+  }, [displayRateConfig, plantAge, monsoon, halveWithGliricidia]);
 
   const scheduleNeeds = useMemo(
     () =>
       buildScheduleNeeds({
-        weeks: rateWeeks,
+        weeks: displayWeeks,
         mixturePerPlant,
         vines: vinesN,
         tanks: tanksN,
         plantAge,
         monsoon,
         halveWithGliricidia,
-        tankLiters: rateConfig.tankLiters || 10,
+        tankLiters: displayRateConfig.tankLiters || 10,
       }),
     [
-      rateWeeks,
+      displayWeeks,
       mixturePerPlant,
       vinesN,
       tanksN,
       plantAge,
       monsoon,
       halveWithGliricidia,
-      rateConfig.tankLiters,
+      displayRateConfig.tankLiters,
     ]
   );
 
@@ -532,7 +543,7 @@ export default function FertilizerPage() {
             : line.mode === "per_tank"
               ? fmtScaledDose(
                   line.gramsPerTank || 0,
-                  `g/${rateConfig.tankLiters || 10}L`,
+                  `g/${displayRateConfig.tankLiters || 10}L`,
                   tanksN,
                   tanksN === 1 ? "tank" : "tanks"
                 )
@@ -570,7 +581,7 @@ export default function FertilizerPage() {
     mixturePerPlant,
     treatedN,
     tanksN,
-    rateConfig.tankLiters,
+    displayRateConfig.tankLiters,
   ]);
 
   /**
@@ -634,7 +645,7 @@ export default function FertilizerPage() {
     const refreshedEn: Record<string, boolean> = {};
 
     if (applyWeek === 0) {
-      let perPlant = gramsFromConfig(rateConfig, plantAge, monsoon);
+      let perPlant = gramsFromConfig(displayRateConfig, plantAge, monsoon);
       if (halveWithGliricidia) perPlant = perPlant / 2;
       const key = PEPPER_MIXTURE.productName;
       refreshedEn[key] = true;
@@ -658,7 +669,7 @@ export default function FertilizerPage() {
     plantAge,
     monsoon,
     halveWithGliricidia,
-    rateConfig,
+    displayRateConfig,
     activeRescueWeek,
   ]);
 
@@ -725,6 +736,47 @@ export default function FertilizerPage() {
     } catch (e: any) {
       play("error");
       setError(e?.message || "Failed to save rates");
+    } finally {
+      setRatesSaving(false);
+    }
+  }
+
+  /** One-click: persist default template for this crop only (shared inventory unchanged). */
+  async function useDefaultsForCrop(cropName: string) {
+    const name = String(cropName || "").trim();
+    if (!name) return;
+    void unlockAudio();
+    play("click");
+    setRatesSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const config = defaultFertilizerRateConfig();
+      const res = await apiFetch("/saveFertilizerRates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cropName: name, config }),
+      });
+      if (res.status === 401) {
+        navigate("/login");
+        return;
+      }
+      if (!res.ok) throw new Error(await readError(res));
+      const saved = (await res.json()) as FertilizerRateConfig;
+      setRateConfig(saved);
+      if (
+        selectedCrop &&
+        selectedCrop.toLowerCase() === name.toLowerCase()
+      ) {
+        setRatesDraft(structuredClone(saved));
+      }
+      play("success");
+      setMessage(
+        `Default fertilizer rates saved for ${name} only — other crops unchanged. Shared inventory still used on apply.`
+      );
+    } catch (e: any) {
+      play("error");
+      setError(e?.message || "Failed to save default rates");
     } finally {
       setRatesSaving(false);
     }
@@ -1544,24 +1596,45 @@ export default function FertilizerPage() {
                   {applyCrop && !cropHasRates && (
                     <div className="rounded-xl border border-amber-400/40 bg-amber-950/30 px-3 py-3 space-y-2">
                       <p className="text-sm text-amber-100">
-                        No fertilizer rates for <strong>{applyCrop}</strong> yet.
-                        New crops start empty — set rates for this crop in{" "}
-                        {isAdmin ? "Edit rates" : "admin Edit rates"} before
-                        applying a week.
+                        No rates saved for <strong>{applyCrop}</strong> yet.
+                        Week chips and totals below are a{" "}
+                        <strong>default preview</strong> only — not saved for
+                        this crop. Log apply stays blocked until rates are
+                        saved.
                       </p>
-                      {isAdmin && (
-                        <button
-                          type="button"
-                          className="glass-btn gold-btn text-sm"
-                          onClick={() => {
-                            play("click");
-                            setSelectedCrop(applyCrop);
-                            setTab("rates");
-                          }}
-                        >
-                          Edit rates for {applyCrop}
-                        </button>
-                      )}
+                      <div className="flex flex-wrap gap-2">
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            className="glass-btn gold-btn text-sm"
+                            disabled={ratesSaving}
+                            onClick={() => void useDefaultsForCrop(applyCrop)}
+                          >
+                            {ratesSaving
+                              ? "Saving…"
+                              : "Use defaults for this crop"}
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            className="glass-btn text-sm"
+                            onClick={() => {
+                              play("click");
+                              setSelectedCrop(applyCrop);
+                              setTab("rates");
+                            }}
+                          >
+                            Edit rates for {applyCrop}
+                          </button>
+                        )}
+                        {!isAdmin && (
+                          <p className="text-xs text-gold-muted">
+                            Ask an admin to save rates for this crop (or use
+                            defaults) before applying.
+                          </p>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -1693,7 +1766,7 @@ export default function FertilizerPage() {
                   </label>
 
                   <div className="flex flex-wrap gap-2">
-                    {rateWeeks.map((w) => (
+                    {displayWeeks.map((w) => (
                       <button
                         key={w.week}
                         type="button"
@@ -1707,12 +1780,18 @@ export default function FertilizerPage() {
                         }}
                       >
                         {w.week === 0 ? "Mixtures" : `Week ${w.week}`}
-                        {rateConfig.intervals?.[String(w.week)]
-                          ? ` · ${rateConfig.intervals[String(w.week)]}d`
+                        {displayRateConfig.intervals?.[String(w.week)]
+                          ? ` · ${displayRateConfig.intervals[String(w.week)]}d`
                           : ""}
                       </button>
                     ))}
                   </div>
+                  {showingRatePreview && (
+                    <p className="text-xs text-amber-200/90">
+                      Showing default Week 1–4 / Mixtures preview — not saved for{" "}
+                      {applyCrop} yet.
+                    </p>
+                  )}
 
                   {applyWeek === 0 && (
                     <div className="space-y-3 rounded-xl border border-emerald-400/25 bg-emerald-950/20 p-3">
@@ -1797,7 +1876,11 @@ export default function FertilizerPage() {
                         <p className="text-sm text-emerald-100 font-medium leading-snug">
                           {halveWithGliricidia ? (
                             <>
-                              {gramsFromConfig(rateConfig, plantAge, monsoon)} →{" "}
+                              {gramsFromConfig(
+                                displayRateConfig,
+                                plantAge,
+                                monsoon
+                              )} →{" "}
                               {mixturePerPlant} g/plant (halved)
                             </>
                           ) : (
@@ -1819,7 +1902,7 @@ export default function FertilizerPage() {
                   {(applyWeek === 2 || applyWeek === 3) && (
                     <label className="block">
                       <span className="eyebrow mb-1 block">
-                        {rateConfig.tankLiters || 10} L spray tanks
+                        {displayRateConfig.tankLiters || 10} L spray tanks
                       </span>
                       <input
                         type="number"
@@ -2081,17 +2164,29 @@ export default function FertilizerPage() {
                   <button
                     type="submit"
                     className={`glass-btn gold-btn w-full ${
-                      saving || !applyCrop ? "opacity-50" : ""
+                      saving || !applyCrop || !cropHasRates ? "opacity-50" : ""
                     }`}
-                    disabled={saving || !applyCrop || activeRescueWeek.lines.length === 0}
+                    disabled={
+                      saving ||
+                      !applyCrop ||
+                      !cropHasRates ||
+                      activeRescueWeek.lines.length === 0
+                    }
+                    title={
+                      !cropHasRates
+                        ? "Save rates for this crop before logging apply"
+                        : undefined
+                    }
                   >
                     {saving
                       ? "Logging…"
-                      : applyWeek === 0
-                        ? extraRound
-                          ? "Log Extra round, stock & expense"
-                          : "Log Mixtures, stock & expense"
-                        : `Log week ${applyWeek}, stock & expense`}
+                      : !cropHasRates
+                        ? "Save rates first to log apply"
+                        : applyWeek === 0
+                          ? extraRound
+                            ? "Log Extra round, stock & expense"
+                            : "Log Mixtures, stock & expense"
+                          : `Log week ${applyWeek}, stock & expense`}
                   </button>
                 </form>
               </section>
@@ -2106,6 +2201,12 @@ export default function FertilizerPage() {
                     {applyCrop ? (
                       <>
                         For <span className="text-gold">{applyCrop}</span>
+                        {showingRatePreview ? (
+                          <span className="text-amber-200/90">
+                            {" "}
+                            (default preview — not saved yet)
+                          </span>
+                        ) : null}
                         {vinesN > 0 ? (
                           <>
                             :{" "}

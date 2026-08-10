@@ -201,6 +201,19 @@ export function hasFertilizerRates(config: FertilizerRateConfig): boolean {
   return Array.isArray(config.weeks) && config.weeks.length > 0;
 }
 
+/** Weeks for Apply UI chips/cards — preview defaults when crop has no saved rates. */
+export function weeksForDisplay(config: FertilizerRateConfig): RescueWeek[] {
+  if (hasFertilizerRates(config)) return config.weeks;
+  return defaultFertilizerRateConfig().weeks;
+}
+
+/** Full rate config for Apply preview only — never treat as saved for this crop. */
+export function rateConfigForDisplay(
+  config: FertilizerRateConfig
+): FertilizerRateConfig {
+  return hasFertilizerRates(config) ? config : defaultFertilizerRateConfig();
+}
+
 export function gramsFromConfig(
   config: FertilizerRateConfig,
   age: PlantAge,
