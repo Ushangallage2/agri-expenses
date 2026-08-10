@@ -6,26 +6,20 @@ import ConfirmModal from "../components/ConfirmModal";
 import { play, unlockAudio } from "../utils/sounds";
 import {
   PEPPER_MIXTURE,
+  RESCUE_WEEKS,
   lineGrams,
   gramsFromConfig,
   defaultFertilizerRateConfig,
-  emptyFertilizerRateConfig,
-  hasFertilizerRates,
-  rateConfigForDisplay,
-  weeksForDisplay,
+  defaultFertilizerRateConfigForCrop,
+  isTurmericCropName,
+  isPepperMixturesWeek,
+  weekScheduleButtonLabel,
   type RescueWeek,
   type RecipeLine,
   type PlantAge,
   type Monsoon,
   type FertilizerRateConfig,
 } from "../utils/fertilizerRecipes";
-
-const EMPTY_WEEK: RescueWeek = {
-  week: 0,
-  title: "No rates configured",
-  summary: "",
-  lines: [],
-};
 import { useAuth } from "../utils/AuthContext";
 import Money from "../components/Money";
 
@@ -180,10 +174,10 @@ function buildScheduleNeeds(opts: {
   } = opts;
 
   return weeks.map((w) => {
-    if (w.week === 0) {
+    if (isPepperMixturesWeek(w)) {
       const per = mixturePerPlant;
       return {
-        week: 0,
+        week: w.week,
         title: w.title,
         note: `${PEPPER_MIXTURE.ageLabels[plantAge]} · ${PEPPER_MIXTURE.monsoonLabels[monsoon]}${
           halveWithGliricidia ? " · halved (Gliricidia)" : ""
@@ -206,7 +200,9 @@ function buildScheduleNeeds(opts: {
       return {
         week: w.week,
         title: w.title,
-        note: "No bag fertilizer — disease spray / cultural care per label",
+        note: /flush|curing|phase 5/i.test(w.title + w.summary)
+          ? "Checklist only — water flush / curing; no fertilizer products"
+          : "No bag fertilizer — disease spray / cultural care per label",
         lines: [],
       };
     }
@@ -337,7 +333,7 @@ export default function FertilizerPage() {
   const [lineEnabled, setLineEnabled] = useState<Record<string, boolean>>({});
   const [lineAmounts, setLineAmounts] = useState<Record<string, string>>({});
   const [rateConfig, setRateConfig] = useState<FertilizerRateConfig>(
-    emptyFertilizerRateConfig
+    defaultFertilizerRateConfig
   );
   const [ratesDraft, setRatesDraft] = useState<FertilizerRateConfig | null>(
     null
@@ -402,7 +398,7 @@ export default function FertilizerPage() {
 
   useEffect(() => {
     if (!applyCrop) {
-      setRateConfig(emptyFertilizerRateConfig());
+      setRateConfig(defaultFertilizerRateConfig());
       return;
     }
     void loadRateConfig(applyCrop).then((cfg) => {
@@ -428,20 +424,18 @@ export default function FertilizerPage() {
     });
   }, [tab, selectedCrop]);
 
-  const cropHasRates = hasFertilizerRates(rateConfig);
-  /** Preview defaults only when a crop is selected and has no saved rates. */
-  const showingRatePreview = Boolean(applyCrop) && !cropHasRates;
-  const displayRateConfig = showingRatePreview
-    ? rateConfigForDisplay(rateConfig)
-    : rateConfig;
-  const displayWeeks = showingRatePreview
-    ? weeksForDisplay(rateConfig)
-    : rateConfig.weeks || [];
+  const rateWeeks =
+    rateConfig.weeks?.length > 0 ? rateConfig.weeks : RESCUE_WEEKS;
 
   const activeRescueWeek: RescueWeek =
-    displayWeeks.find((w) => w.week === applyWeek) ||
-    displayWeeks[0] ||
-    EMPTY_WEEK;
+    rateWeeks.find((w) => w.week === applyWeek) || rateWeeks[0];
+
+  const pepperMixturesActive = isPepperMixturesWeek(activeRescueWeek);
+  const activeHasPerTank = activeRescueWeek.lines.some(
+    (l) => l.mode === "per_tank"
+  );
+  const applyCropIsTurmeric = isTurmericCropName(applyCrop);
+  const ratesCropIsTurmeric = isTurmericCropName(selectedCrop);
 
   const applyCropMeta = useMemo(
     () =>
@@ -455,32 +449,32 @@ export default function FertilizerPage() {
   const tanksN = Math.max(0, Number(tankCount) || 0);
   const isPartialApply = vinesN > 0 && treatedN > 0 && treatedN < vinesN;
   const mixturePerPlant = useMemo(() => {
-    let g = gramsFromConfig(displayRateConfig, plantAge, monsoon);
+    let g = gramsFromConfig(rateConfig, plantAge, monsoon);
     if (halveWithGliricidia) g = g / 2;
     return g;
-  }, [displayRateConfig, plantAge, monsoon, halveWithGliricidia]);
+  }, [rateConfig, plantAge, monsoon, halveWithGliricidia]);
 
   const scheduleNeeds = useMemo(
     () =>
       buildScheduleNeeds({
-        weeks: displayWeeks,
+        weeks: rateWeeks,
         mixturePerPlant,
         vines: vinesN,
         tanks: tanksN,
         plantAge,
         monsoon,
         halveWithGliricidia,
-        tankLiters: displayRateConfig.tankLiters || 10,
+        tankLiters: rateConfig.tankLiters || 10,
       }),
     [
-      displayWeeks,
+      rateWeeks,
       mixturePerPlant,
       vinesN,
       tanksN,
       plantAge,
       monsoon,
       halveWithGliricidia,
-      displayRateConfig.tankLiters,
+      rateConfig.tankLiters,
     ]
   );
 
@@ -526,7 +520,7 @@ export default function FertilizerPage() {
         ? lineCostFromGrams(grams, price, fert.unit)
         : 0;
       const equation =
-        applyWeek === 0
+        pepperMixturesActive
           ? fmtScaledDose(
               mixturePerPlant,
               "g/plant",
@@ -543,7 +537,7 @@ export default function FertilizerPage() {
             : line.mode === "per_tank"
               ? fmtScaledDose(
                   line.gramsPerTank || 0,
-                  `g/${displayRateConfig.tankLiters || 10}L`,
+                  `g/${rateConfig.tankLiters || 10}L`,
                   tanksN,
                   tanksN === 1 ? "tank" : "tanks"
                 )
@@ -577,11 +571,11 @@ export default function FertilizerPage() {
     lineEnabled,
     lineAmounts,
     fertilizers,
-    applyWeek,
+    pepperMixturesActive,
     mixturePerPlant,
     treatedN,
     tanksN,
-    displayRateConfig.tankLiters,
+    rateConfig.tankLiters,
   ]);
 
   /**
@@ -596,8 +590,10 @@ export default function FertilizerPage() {
       const notes = String(a.notes || "");
       const weekOk =
         notes.includes(`[week:${applyWeek}]`) ||
-        (applyWeek > 0 && notes.includes(`Week ${applyWeek}`)) ||
-        (applyWeek === 0 &&
+        (applyWeek > 0 &&
+          (notes.includes(`Week ${applyWeek}`) ||
+            notes.includes(`Phase ${applyWeek}`))) ||
+        (pepperMixturesActive &&
           /Pepper Fertilizer Mixtures|Extra round/i.test(notes));
       if (!weekOk) continue;
       const m = notes.match(/\[treated:(\d+)(?:\/(\d+))?\]/i);
@@ -627,7 +623,7 @@ export default function FertilizerPage() {
       remaining,
       incomplete: treated > 0 && remaining > 0,
     };
-  }, [applications, applyCrop, applyWeek, vinesN]);
+  }, [applications, applyCrop, applyWeek, vinesN, pepperMixturesActive]);
 
   const treatedSoFar = cycleProgress.treated;
   const vinesLeft = cycleProgress.remaining;
@@ -644,8 +640,8 @@ export default function FertilizerPage() {
     const refreshed: Record<string, string> = {};
     const refreshedEn: Record<string, boolean> = {};
 
-    if (applyWeek === 0) {
-      let perPlant = gramsFromConfig(displayRateConfig, plantAge, monsoon);
+    if (pepperMixturesActive) {
+      let perPlant = gramsFromConfig(rateConfig, plantAge, monsoon);
       if (halveWithGliricidia) perPlant = perPlant / 2;
       const key = PEPPER_MIXTURE.productName;
       refreshedEn[key] = true;
@@ -669,8 +665,9 @@ export default function FertilizerPage() {
     plantAge,
     monsoon,
     halveWithGliricidia,
-    displayRateConfig,
+    rateConfig,
     activeRescueWeek,
+    pepperMixturesActive,
   ]);
 
   useEffect(() => {
@@ -684,22 +681,37 @@ export default function FertilizerPage() {
     }
   }, [applyCrop, cropMeta]);
 
+  // Keep Apply week in range when crop template switches (pepper 0–4 vs turmeric 1–5).
+  useEffect(() => {
+    if (!rateWeeks.length) return;
+    if (!rateWeeks.some((w) => w.week === applyWeek)) {
+      setApplyWeek(rateWeeks[0].week);
+      setExtraRound(false);
+    }
+  }, [rateWeeks, applyWeek]);
+
   async function loadRateConfig(
     crop: string
   ): Promise<FertilizerRateConfig | null> {
     const name = String(crop || "").trim();
-    if (!name) return emptyFertilizerRateConfig();
+    if (!name) return defaultFertilizerRateConfig();
     const res = await apiFetch(
       `/getFertilizerRates?crop=${encodeURIComponent(name)}`
     );
     if (!res.ok) return null;
     const data = (await res.json()) as FertilizerRateConfig;
-    const empty = emptyFertilizerRateConfig();
+    const defaults = defaultFertilizerRateConfigForCrop(name);
     return {
-      mixtureRates: data?.mixtureRates || empty.mixtureRates,
-      weeks: Array.isArray(data?.weeks) ? data.weeks : [],
-      intervals: data?.intervals || {},
-      tankLiters: Number(data?.tankLiters) > 0 ? Number(data.tankLiters) : 10,
+      mixtureRates: data?.mixtureRates || defaults.mixtureRates,
+      weeks:
+        Array.isArray(data?.weeks) && data.weeks.length > 0
+          ? data.weeks
+          : defaults.weeks,
+      intervals: data?.intervals || defaults.intervals,
+      tankLiters:
+        Number(data?.tankLiters) > 0
+          ? Number(data.tankLiters)
+          : defaults.tankLiters,
     };
   }
 
@@ -741,47 +753,6 @@ export default function FertilizerPage() {
     }
   }
 
-  /** One-click: persist default template for this crop only (shared inventory unchanged). */
-  async function useDefaultsForCrop(cropName: string) {
-    const name = String(cropName || "").trim();
-    if (!name) return;
-    void unlockAudio();
-    play("click");
-    setRatesSaving(true);
-    setError("");
-    setMessage("");
-    try {
-      const config = defaultFertilizerRateConfig();
-      const res = await apiFetch("/saveFertilizerRates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cropName: name, config }),
-      });
-      if (res.status === 401) {
-        navigate("/login");
-        return;
-      }
-      if (!res.ok) throw new Error(await readError(res));
-      const saved = (await res.json()) as FertilizerRateConfig;
-      setRateConfig(saved);
-      if (
-        selectedCrop &&
-        selectedCrop.toLowerCase() === name.toLowerCase()
-      ) {
-        setRatesDraft(structuredClone(saved));
-      }
-      play("success");
-      setMessage(
-        `Default fertilizer rates saved for ${name} only — other crops unchanged. Shared inventory still used on apply.`
-      );
-    } catch (e: any) {
-      play("error");
-      setError(e?.message || "Failed to save default rates");
-    } finally {
-      setRatesSaving(false);
-    }
-  }
-
   async function loadAll() {
     setLoading(true);
     setError("");
@@ -797,7 +768,7 @@ export default function FertilizerPage() {
         const cfg = await loadRateConfig(cropForRates);
         if (cfg) setRateConfig(cfg);
       } else {
-        setRateConfig(emptyFertilizerRateConfig());
+        setRateConfig(defaultFertilizerRateConfig());
       }
     } catch (e: any) {
       setError(e?.message || "Failed to load");
@@ -871,7 +842,7 @@ export default function FertilizerPage() {
 
   function mixturesWeekLabel() {
     const base = activeRescueWeek.title;
-    if (applyWeek === 0 && extraRound) {
+    if (pepperMixturesActive && extraRound) {
       return `Extra round — ${base}`;
     }
     return base;
@@ -881,12 +852,6 @@ export default function FertilizerPage() {
     e.preventDefault();
     if (!applyCrop) {
       setError("Select a crop first");
-      return;
-    }
-    if (!cropHasRates) {
-      setError(
-        `No fertilizer rates for ${applyCrop}. Set rates for this crop in Edit rates first.`
-      );
       return;
     }
     void unlockAudio();
@@ -910,7 +875,7 @@ export default function FertilizerPage() {
           ? ` Full ${treatedN}/${vinesN} vines`
           : ` ${treatedN} vines`;
       const detail =
-        applyWeek === 0
+        pepperMixturesActive
           ? ` · ${PEPPER_MIXTURE.ageLabels[plantAge]} · ${PEPPER_MIXTURE.monsoonLabels[monsoon]}${
               halveWithGliricidia ? " · halved (Gliricidia)" : ""
             }`
@@ -930,7 +895,7 @@ export default function FertilizerPage() {
       if (!lines.length) {
         throw new Error(
           activeRescueWeek.lines.length === 0
-            ? "Week 4 is checklist-only — add disease products to inventory and log under Usage."
+            ? "This phase/week is checklist-only — no stock lines to log. Use Crop Notes for flush/cure steps, or add products under Log usage."
             : "Enable at least one product line with amount > 0"
         );
       }
@@ -979,7 +944,7 @@ export default function FertilizerPage() {
           ".";
       }
       setMessage(
-        (applyWeek === 0 && extraRound
+        (pepperMixturesActive && extraRound
           ? `Logged Extra round (${lines.length} product(s)) for ${treatedN} vine(s) on ${applyCrop}.`
           : `Logged ${lines.length} product(s) for ${treatedN}/${
               vinesN || treatedN
@@ -1593,51 +1558,6 @@ export default function FertilizerPage() {
                     </select>
                   </label>
 
-                  {applyCrop && !cropHasRates && (
-                    <div className="rounded-xl border border-amber-400/40 bg-amber-950/30 px-3 py-3 space-y-2">
-                      <p className="text-sm text-amber-100">
-                        No rates saved for <strong>{applyCrop}</strong> yet.
-                        Week chips and totals below are a{" "}
-                        <strong>default preview</strong> only — not saved for
-                        this crop. Log apply stays blocked until rates are
-                        saved.
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {isAdmin && (
-                          <button
-                            type="button"
-                            className="glass-btn gold-btn text-sm"
-                            disabled={ratesSaving}
-                            onClick={() => void useDefaultsForCrop(applyCrop)}
-                          >
-                            {ratesSaving
-                              ? "Saving…"
-                              : "Use defaults for this crop"}
-                          </button>
-                        )}
-                        {isAdmin && (
-                          <button
-                            type="button"
-                            className="glass-btn text-sm"
-                            onClick={() => {
-                              play("click");
-                              setSelectedCrop(applyCrop);
-                              setTab("rates");
-                            }}
-                          >
-                            Edit rates for {applyCrop}
-                          </button>
-                        )}
-                        {!isAdmin && (
-                          <p className="text-xs text-gold-muted">
-                            Ask an admin to save rates for this crop (or use
-                            defaults) before applying.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <label className="block">
                       <span className="eyebrow mb-1 flex items-center gap-2 flex-wrap">
@@ -1766,7 +1686,7 @@ export default function FertilizerPage() {
                   </label>
 
                   <div className="flex flex-wrap gap-2">
-                    {displayWeeks.map((w) => (
+                    {rateWeeks.map((w) => (
                       <button
                         key={w.week}
                         type="button"
@@ -1776,24 +1696,18 @@ export default function FertilizerPage() {
                         onClick={() => {
                           play("click");
                           setApplyWeek(w.week);
-                          if (w.week !== 0) setExtraRound(false);
+                          if (!isPepperMixturesWeek(w)) setExtraRound(false);
                         }}
                       >
-                        {w.week === 0 ? "Mixtures" : `Week ${w.week}`}
-                        {displayRateConfig.intervals?.[String(w.week)]
-                          ? ` · ${displayRateConfig.intervals[String(w.week)]}d`
+                        {weekScheduleButtonLabel(w)}
+                        {rateConfig.intervals?.[String(w.week)]
+                          ? ` · ${rateConfig.intervals[String(w.week)]}d`
                           : ""}
                       </button>
                     ))}
                   </div>
-                  {showingRatePreview && (
-                    <p className="text-xs text-amber-200/90">
-                      Showing default Week 1–4 / Mixtures preview — not saved for{" "}
-                      {applyCrop} yet.
-                    </p>
-                  )}
 
-                  {applyWeek === 0 && (
+                  {pepperMixturesActive && (
                     <div className="space-y-3 rounded-xl border border-emerald-400/25 bg-emerald-950/20 p-3">
                       <p className="text-xs text-emerald-200/90">
                         {PEPPER_MIXTURE.composition}
@@ -1877,7 +1791,7 @@ export default function FertilizerPage() {
                           {halveWithGliricidia ? (
                             <>
                               {gramsFromConfig(
-                                displayRateConfig,
+                                rateConfig,
                                 plantAge,
                                 monsoon
                               )} →{" "}
@@ -1899,10 +1813,10 @@ export default function FertilizerPage() {
                     </div>
                   )}
 
-                  {(applyWeek === 2 || applyWeek === 3) && (
+                  {activeHasPerTank && (
                     <label className="block">
                       <span className="eyebrow mb-1 block">
-                        {displayRateConfig.tankLiters || 10} L spray tanks
+                        {rateConfig.tankLiters || 10} L spray tanks
                       </span>
                       <input
                         type="number"
@@ -1915,14 +1829,15 @@ export default function FertilizerPage() {
                       <span className="text-[11px] text-gold-muted mt-1 block">
                         Foliar lines scale by tanks. Vine-based lines (if any)
                         still use plant count above ({vinesN.toLocaleString()}{" "}
-                        {vinesN === 1 ? "plant" : "plants"}).
+                        {vinesN === 1 ? "plant" : "plants"}
+                        {applyCropIsTurmeric ? " / bags" : ""}).
                       </span>
                     </label>
                   )}
 
                   <div className="rounded-xl border border-[var(--glass-border)] bg-black/20 p-3">
                     <p className="font-medium text-gold text-sm">
-                      {applyWeek === 0 && extraRound
+                      {pepperMixturesActive && extraRound
                         ? `Extra round — ${activeRescueWeek.title}`
                         : activeRescueWeek.title}
                     </p>
@@ -1931,7 +1846,8 @@ export default function FertilizerPage() {
                     </p>
                   </div>
 
-                  {applyWeek > 0 && activeRescueWeek.lines.length > 0 && (
+                  {!pepperMixturesActive &&
+                    activeRescueWeek.lines.length > 0 && (
                     <div className="rounded-lg border border-amber-400/30 bg-amber-950/25 px-3 py-2.5 space-y-1.5">
                       <p className="text-[11px] uppercase tracking-wide text-amber-200/85">
                         Total needed this week
@@ -1940,7 +1856,7 @@ export default function FertilizerPage() {
                               vinesN === 1 ? "plant" : "plants"
                             }`
                           : ""}
-                        {(applyWeek === 2 || applyWeek === 3) && tanksN > 0
+                        {activeHasPerTank && tanksN > 0
                           ? ` · ${tanksN.toLocaleString()} ${
                               tanksN === 1 ? "tank" : "tanks"
                             }`
@@ -2004,8 +1920,12 @@ export default function FertilizerPage() {
 
                   {activeRescueWeek.lines.length === 0 ? (
                     <p className="text-sm text-gold-muted">
-                      No stock lines for this week — use as a checklist, then log
-                      disease products under <strong>Log usage</strong>.
+                      No stock lines for this phase/week — use as a checklist
+                      {/flush|curing|phase 5/i.test(
+                        activeRescueWeek.title + activeRescueWeek.summary
+                      )
+                        ? " (water flush / curing only)."
+                        : " — log disease products under Log usage if needed."}
                     </p>
                   ) : (
                     <div className="space-y-2">
@@ -2020,7 +1940,7 @@ export default function FertilizerPage() {
                         const short =
                           fert != null && needKg > fert.stock_qty + 1e-9;
                         const rateHint =
-                          applyWeek === 0
+                          pepperMixturesActive
                             ? fmtScaledDose(
                                 mixturePerPlant,
                                 "g/plant",
@@ -2164,29 +2084,21 @@ export default function FertilizerPage() {
                   <button
                     type="submit"
                     className={`glass-btn gold-btn w-full ${
-                      saving || !applyCrop || !cropHasRates ? "opacity-50" : ""
+                      saving || !applyCrop ? "opacity-50" : ""
                     }`}
                     disabled={
                       saving ||
                       !applyCrop ||
-                      !cropHasRates ||
                       activeRescueWeek.lines.length === 0
-                    }
-                    title={
-                      !cropHasRates
-                        ? "Save rates for this crop before logging apply"
-                        : undefined
                     }
                   >
                     {saving
                       ? "Logging…"
-                      : !cropHasRates
-                        ? "Save rates first to log apply"
-                        : applyWeek === 0
-                          ? extraRound
-                            ? "Log Extra round, stock & expense"
-                            : "Log Mixtures, stock & expense"
-                          : `Log week ${applyWeek}, stock & expense`}
+                      : pepperMixturesActive
+                        ? extraRound
+                          ? "Log Extra round, stock & expense"
+                          : "Log Mixtures, stock & expense"
+                        : `Log ${weekScheduleButtonLabel(activeRescueWeek)}, stock & expense`}
                   </button>
                 </form>
               </section>
@@ -2201,12 +2113,6 @@ export default function FertilizerPage() {
                     {applyCrop ? (
                       <>
                         For <span className="text-gold">{applyCrop}</span>
-                        {showingRatePreview ? (
-                          <span className="text-amber-200/90">
-                            {" "}
-                            (default preview — not saved yet)
-                          </span>
-                        ) : null}
                         {vinesN > 0 ? (
                           <>
                             :{" "}
@@ -2248,7 +2154,11 @@ export default function FertilizerPage() {
                           onClick={() => {
                             play("click");
                             setApplyWeek(block.week);
-                            if (block.week !== 0) setExtraRound(false);
+                            const weekDef = rateWeeks.find(
+                              (w) => w.week === block.week
+                            );
+                            if (!isPepperMixturesWeek(weekDef))
+                              setExtraRound(false);
                           }}
                           className={`w-full text-left rounded-xl border px-3 py-2.5 transition ${
                             selected
@@ -2258,12 +2168,18 @@ export default function FertilizerPage() {
                         >
                           <div className="flex items-center justify-between gap-2 mb-1.5">
                             <p className="font-medium text-gold text-sm">
-                              {block.week === 0
-                                ? "Mixtures"
-                                : `Week ${block.week}`}
+                              {weekScheduleButtonLabel({
+                                week: block.week,
+                                title: block.title,
+                                summary: "",
+                                lines: [],
+                              })}
                               <span className="text-gold-muted font-normal">
                                 {" "}
-                                — {block.title.replace(/^Week \d+ — /, "")}
+                                —{" "}
+                                {block.title
+                                  .replace(/^Phase \d+\s*[—–-]\s*/i, "")
+                                  .replace(/^Week \d+\s*[—–-]\s*/i, "")}
                               </span>
                             </p>
                             {selected && (
@@ -3089,8 +3005,10 @@ export default function FertilizerPage() {
                   Rates are specific to one crop (not shared). Inventory stock
                   stays shared. Apply week and past-due todos use this crop&apos;s
                   values. Interval days drive missed-apply reminders when plant
-                  count &gt; 1. New crops start with empty rates — use Load
-                  defaults or enter amounts, then Save.
+                  count &gt; 1. New crops auto-seed a template by name: turmeric /
+                  කහ get the Extra-Premium Turmeric Plan (Phase 1–5); others get
+                  the pepper Mixtures + Week 1–4 rescue plan. Edit and Save to
+                  customize, or Load defaults to reset this crop only.
                 </p>
               </div>
 
@@ -3128,14 +3046,6 @@ export default function FertilizerPage() {
                 <p className="text-sm text-gold-muted">Loading rates…</p>
               ) : (
                 <>
-                  {!hasFertilizerRates(editingRates) && (
-                    <p className="text-sm text-gold-muted rounded-xl border border-white/10 bg-black/20 px-3 py-3">
-                      No rates saved for <strong>{selectedCrop}</strong> yet.
-                      Click <strong>Load defaults</strong> to start from the
-                      pepper rescue template, then adjust and save.
-                    </p>
-                  )}
-
                   <label className="block max-w-xs">
                     <span className="eyebrow mb-1 block">
                       Dissolve volume (liters / tank)
@@ -3156,6 +3066,8 @@ export default function FertilizerPage() {
                   </label>
 
                   <div className="space-y-3">
+                    {!ratesCropIsTurmeric && (
+                      <>
                     <p className="eyebrow">
                       Pepper Fertilizer Mixtures (g / plant)
                     </p>
@@ -3197,6 +3109,14 @@ export default function FertilizerPage() {
                         ))}
                       </div>
                     ))}
+                      </>
+                    )}
+                    {ratesCropIsTurmeric && (
+                      <p className="text-sm text-gold-muted rounded-lg border border-emerald-400/25 bg-emerald-950/20 px-3 py-2">
+                        Turmeric Extra-Premium plan — Phase 1–5 below (no pepper
+                        monsoon mixtures table).
+                      </p>
+                    )}
                   </div>
 
                   {editingRates.weeks.map((w, wi) => (
@@ -3207,8 +3127,7 @@ export default function FertilizerPage() {
                       <div className="flex flex-wrap items-end gap-3 justify-between">
                         <div>
                           <p className="font-medium text-gold text-sm">
-                            {w.week === 0 ? "Mixtures" : `Week ${w.week}`} —{" "}
-                            {w.title}
+                            {weekScheduleButtonLabel(w)} — {w.title}
                           </p>
                         </div>
                         <label className="block w-36">
@@ -3343,7 +3262,9 @@ export default function FertilizerPage() {
                       className="glass-btn"
                       disabled={ratesSaving || !selectedCrop}
                       onClick={() => {
-                        setRatesDraft(defaultFertilizerRateConfig());
+                        setRatesDraft(
+                          defaultFertilizerRateConfigForCrop(selectedCrop)
+                        );
                         play("click");
                       }}
                     >

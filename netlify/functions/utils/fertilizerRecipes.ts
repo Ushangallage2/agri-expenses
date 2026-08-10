@@ -1,5 +1,7 @@
 /**
- * Purchase inventory + Pepper Fertilizer Mixtures rates + rescue weeks.
+ * Purchase inventory + Pepper Fertilizer Mixtures rates + rescue weeks +
+ * turmeric phases. Keep TURMERIC_PHASES / RESCUE_WEEKS aligned with
+ * src/utils/fertilizerRecipes.ts.
  */
 
 export type StarterItem = {
@@ -249,6 +251,138 @@ export const RESCUE_WEEKS: RescueWeek[] = [
     lines: [],
   },
 ];
+
+/**
+ * Extra-Premium Localized Turmeric Plan — weeks 1–5 = Phase 1–5
+ * (avoids pepper week-0 Mixtures special-case in Apply UI).
+ * tbsp≈15g, tsp≈5g; liquids tracked as ml≈g for stock.
+ */
+export const TURMERIC_PHASES: RescueWeek[] = [
+  {
+    week: 1,
+    title: "Phase 1 — Pre-Planting Soil Prep",
+    summary:
+      "7 days before planting: mineral foundations + microbial shield in 50% compost / 50% soil-sand (50kg rice bag). Moisten like wrung-out sponge; rest 7 days.",
+    lines: [
+      {
+        fertilizerName: "Dolomite",
+        mode: "per_plant",
+        gramsPerPlant: 30,
+        tip: "2 tbsp Down To Earth Dolomite Lime (Ca/Mg) per bag",
+      },
+      {
+        fertilizerName: "Rock Phosphate",
+        mode: "per_plant",
+        gramsPerPlant: 45,
+        tip: "3 tbsp Down To Earth Rock Phosphate (slow-release P) per bag",
+      },
+      {
+        fertilizerName: "Trichoderma Viride",
+        mode: "per_plant",
+        gramsPerPlant: 15,
+        tip: "1 tbsp powder into compost blend (microbial shield)",
+      },
+    ],
+  },
+  {
+    week: 2,
+    title: "Phase 2 — Months 0–2 Sprouting & Rooting",
+    summary:
+      "Root explosion — bio-stimulants only. Roocta dip at planting; after sprouting pour 500 ml of Maxigrow+HS dilution per bag every 3 weeks. Minimal watering.",
+    lines: [
+      {
+        fertilizerName: "Roocta Rooting Powder",
+        mode: "per_plant",
+        gramsPerPlant: 4,
+        optional: true,
+        tip: "Roocta Dip: 1 tsp (~3–5g) / 1 L; soak 4–5 seed pieces 15 min; bury 2–3 inches",
+      },
+      {
+        fertilizerName: "Maxigrow",
+        mode: "per_plant",
+        gramsPerPlant: 0.5,
+        tip: "1 ml Maxigrow + 1 ml HS / 1 L water; pour 500 ml over soil every 3 weeks",
+      },
+      {
+        fertilizerName: "HS Liquid Fertilizer",
+        mode: "per_plant",
+        gramsPerPlant: 0.5,
+        tip: "Paired with Maxigrow in the same 1 L dilution; 500 ml per bag",
+      },
+    ],
+  },
+  {
+    week: 3,
+    title: "Phase 3 — Months 2–4 Vegetative Canopy",
+    summary:
+      "Deep-green leaves / solar capture. Soil: Pure මාළු fish NPK 5.1.1 every 2 weeks. Foliar HS weekly (2× if light green). Full sunlight.",
+    lines: [
+      {
+        fertilizerName: "Pure මාළු (Fish) NPK 5.1.1",
+        mode: "per_plant",
+        gramsPerPlant: 30,
+        tip: "2 tbsp (30 ml) / 2 L water; pour all 2 L across bag every 2 weeks",
+      },
+      {
+        fertilizerName: "HS Liquid Fertilizer",
+        mode: "per_tank",
+        gramsPerTank: 2.5,
+        tip: "Foliar: ½ tsp (2.5 ml) / 1 L; early morning once weekly (2×/week if light green)",
+      },
+    ],
+  },
+  {
+    week: 4,
+    title: "Phase 4 — Months 5–7 Rhizome Swelling",
+    summary:
+      "Underground weight/thickness. Grow More Bloom Special every 10–12 days. Stop Pure මාළු fish fertilizer (avoid excess N).",
+    lines: [
+      {
+        fertilizerName: "Grow More Bloom Special (6-30-30)",
+        mode: "per_plant",
+        gramsPerPlant: 15,
+        tip: "1 tbsp (~15g) / 2 L water; drench every 10–12 days. Stop fish NPK this phase.",
+      },
+    ],
+  },
+  {
+    week: 5,
+    title: "Phase 5 — Month 8 Flushing & Curing",
+    summary:
+      "Stop all fertilizers. Weeks 1–2: clean water only (~1 L when bag feels light) to flush salts. Final 2 weeks: stop watering; leaves dry/brown → curcumin + skin curing.",
+    lines: [],
+  },
+];
+
+/** Case-insensitive: turmeric, කහ, or name contains "turmeric". */
+export function isTurmericCropName(cropName: string): boolean {
+  const n = String(cropName || "").trim().toLowerCase();
+  if (!n) return false;
+  if (n.includes("turmeric")) return true;
+  if (n.includes("කහ")) return true;
+  return n === "kaha";
+}
+
+/** Short Apply-week tab label from week title. */
+export function weekScheduleButtonLabel(w: RescueWeek): string {
+  const phase = w.title.match(/^(Phase\s+\d+)/i);
+  if (phase) return phase[1];
+  const week = w.title.match(/^(Week\s+\d+)/i);
+  if (week) return week[1];
+  if (w.week === 0) return "Mixtures";
+  return `Week ${w.week}`;
+}
+
+/** Pepper monsoon Mixtures week — not turmeric Phase. */
+export function isPepperMixturesWeek(w: RescueWeek | null | undefined): boolean {
+  if (!w) return false;
+  if (
+    w.lines.some((l) => l.fertilizerName === "Pepper Fertilizer Mixtures")
+  ) {
+    return true;
+  }
+  return /pepper fertilizer mixtures/i.test(w.title || "");
+}
 
 export function lineGrams(
   line: RecipeLine,

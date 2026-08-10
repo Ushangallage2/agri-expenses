@@ -2,11 +2,14 @@ import pool from "../db";
 import {
   PEPPER_MIXTURE,
   RESCUE_WEEKS,
+  TURMERIC_PHASES,
+  isTurmericCropName,
   type PlantAge,
   type Monsoon,
   type RecipeLine,
   type RescueWeek,
 } from "./fertilizerRecipes";
+import { ensureTurmericPlanNotes } from "./turmericPlanNotes";
 
 let ensured = false;
 let migratedLegacy = false;
@@ -15,23 +18,10 @@ export type FertilizerRateConfig = {
   mixtureRates: Record<PlantAge, Record<Monsoon, number>>;
   /** Reference dissolve volume for foliar recipes (liters per tank). */
   tankLiters: number;
-  /** Cadence days per week number (string keys "0"…"4"). */
+  /** Cadence days per week number (string keys). */
   intervals: Record<string, number>;
   weeks: RescueWeek[];
 };
-
-export function emptyFertilizerRateConfig(): FertilizerRateConfig {
-  return {
-    mixtureRates: {
-      year1: { first: 0, second: 0 },
-      year2: { first: 0, second: 0 },
-      year3: { first: 0, second: 0 },
-    },
-    tankLiters: 10,
-    intervals: {},
-    weeks: [],
-  };
-}
 
 export function defaultFertilizerRateConfig(): FertilizerRateConfig {
   return {
@@ -42,7 +32,25 @@ export function defaultFertilizerRateConfig(): FertilizerRateConfig {
   };
 }
 
-/** True when the crop has a usable week schedule (not the empty starter). */
+export function defaultTurmericFertilizerRateConfig(): FertilizerRateConfig {
+  return {
+    mixtureRates: structuredClone(PEPPER_MIXTURE.rates),
+    tankLiters: 1,
+    intervals: { "1": 365, "2": 21, "3": 14, "4": 11, "5": 60 },
+    weeks: structuredClone(TURMERIC_PHASES),
+  };
+}
+
+/** Pepper defaults, or turmeric Extra-Premium plan when crop name matches. */
+export function defaultFertilizerRateConfigForCrop(
+  cropName: string
+): FertilizerRateConfig {
+  return isTurmericCropName(cropName)
+    ? defaultTurmericFertilizerRateConfig()
+    : defaultFertilizerRateConfig();
+}
+
+/** True when the crop has a usable week schedule. */
 export function hasFertilizerRates(config: FertilizerRateConfig): boolean {
   return Array.isArray(config.weeks) && config.weeks.length > 0;
 }
@@ -72,10 +80,8 @@ function sanitizeLine(raw: unknown): RecipeLine | null {
 }
 
 /**
- * Normalize a rate config against `base`.
- * Use `emptyFertilizerRateConfig()` as base when reading stored rows so missing
- * fields stay empty (do not inject pepper defaults).
- * Use `defaultFertilizerRateConfig()` when saving admin edits that may omit fields.
+ * Normalize a rate config against `base` (defaults when omitted).
+ * Pass crop-appropriate base so turmeric does not pick up pepper weeks.
  */
 export function normalizeRateConfig(
   raw: unknown,
@@ -113,14 +119,16 @@ export function normalizeRateConfig(
   }
 
   if (Array.isArray(o.weeks)) {
+    // Full weeks array from client/DB replaces base weeks (avoids pepper week-0
+    // leaking onto turmeric Phase 1–5 schedules).
     const byWeek = new Map<number, RescueWeek>();
-    for (const w of out.weeks) byWeek.set(w.week, w);
     for (const item of o.weeks) {
       if (!item || typeof item !== "object") continue;
       const w = item as Record<string, unknown>;
       const week = Number(w.week);
       if (!Number.isFinite(week)) continue;
-      const prev = byWeek.get(week) || {
+      const baseWeek = out.weeks.find((x) => x.week === week);
+      const prev = baseWeek || {
         week,
         title: `Week ${week}`,
         summary: "",
@@ -137,10 +145,7 @@ export function normalizeRateConfig(
         lines,
       });
     }
-    // Explicit empty weeks array against empty base → stay empty (new crop).
-    if (o.weeks.length === 0 && base.weeks.length === 0) {
-      out.weeks = [];
-    } else {
+    if (byWeek.size > 0) {
       out.weeks = Array.from(byWeek.values()).sort((a, b) => a.week - b.week);
     }
   }
@@ -151,9 +156,9 @@ export function normalizeRateConfig(
 async function migrateLegacyGlobalRow(): Promise<void> {
   if (migratedLegacy) return;
 
-  // Keep legacy global (crop_name NULL) as an unused template unless exactly
-  // one crop exists — then attach that config to the crop so existing setups
-  // keep working without cloning to every crop.
+  // Legacy global (crop_name NULL) is unused as a live config. If exactly one
+  // crop exists and has no row yet, attach the legacy row to that crop once.
+  // Otherwise leave it; each crop seeds from code defaults on first get.
   const legacy = await pool.query(
     `SELECT id FROM fertilizer_rate_config
      WHERE crop_name IS NULL
@@ -184,7 +189,6 @@ async function migrateLegacyGlobalRow(): Promise<void> {
       }
       migratedLegacy = true;
     } else if (crops.rowCount > 1) {
-      // Multi-crop: leave null template unused; each crop starts empty.
       migratedLegacy = true;
     }
     // 0 crops: retry on a later ensure once a crop exists.
@@ -229,34 +233,108 @@ export async function ensureFertilizerRateConfigTable() {
   await migrateLegacyGlobalRow();
 }
 
-function parseStoredConfig(rawJson: unknown): FertilizerRateConfig {
+function parseStoredConfig(
+  rawJson: unknown,
+  cropName: string
+): FertilizerRateConfig {
+  const base = defaultFertilizerRateConfigForCrop(cropName);
   try {
-    return normalizeRateConfig(
-      JSON.parse(String(rawJson)),
-      emptyFertilizerRateConfig()
-    );
+    return normalizeRateConfig(JSON.parse(String(rawJson)), base);
   } catch {
-    return emptyFertilizerRateConfig();
+    return structuredClone(base);
+  }
+}
+
+/** True when stored JSON has no usable weeks (prior "start empty" rows). */
+function storedWeeksAreEmpty(rawJson: unknown): boolean {
+  try {
+    const raw = JSON.parse(String(rawJson));
+    return !Array.isArray(raw?.weeks) || raw.weeks.length === 0;
+  } catch {
+    return true;
+  }
+}
+
+/** Detect pepper Mixtures template wrongly stored on a turmeric crop. */
+function storedLooksLikePepperTemplate(rawJson: unknown): boolean {
+  try {
+    const raw = JSON.parse(String(rawJson));
+    const weeks = Array.isArray(raw?.weeks) ? raw.weeks : [];
+    return weeks.some((w: any) => {
+      if (/pepper fertilizer mixtures/i.test(String(w?.title || ""))) {
+        return true;
+      }
+      const lines = Array.isArray(w?.lines) ? w.lines : [];
+      return lines.some(
+        (l: any) =>
+          String(l?.fertilizerName || "") === "Pepper Fertilizer Mixtures"
+      );
+    });
+  } catch {
+    return false;
   }
 }
 
 /**
- * Rates for one crop. Missing row → empty structure (no fallback to another
- * crop or the legacy global template).
+ * Persist a clone of the crop-type default template for this crop only.
+ * Does not read another crop's live config.
+ */
+async function seedDefaultForCrop(
+  crop: string
+): Promise<FertilizerRateConfig> {
+  const config = await saveFertilizerRateConfig(
+    crop,
+    defaultFertilizerRateConfigForCrop(crop)
+  );
+  try {
+    await ensureTurmericPlanNotes(crop);
+  } catch (err) {
+    console.error("turmeric plan notes seed:", err);
+  }
+  return config;
+}
+
+/**
+ * Rates for one crop. Missing row or empty weeks → clone defaults, persist,
+ * return. Never falls back to another crop's live config.
+ * Turmeric-named crops seed the turmeric template; others seed pepper/rescue.
  */
 export async function getFertilizerRateConfig(
   cropName: string
 ): Promise<FertilizerRateConfig> {
   const crop = String(cropName || "").trim();
-  if (!crop) return emptyFertilizerRateConfig();
+  if (!crop) return defaultFertilizerRateConfig();
 
   await ensureFertilizerRateConfigTable();
   const res = await pool.query(
     `SELECT config_json FROM fertilizer_rate_config WHERE crop_name = ? LIMIT 1`,
     [crop]
   );
-  if (!res.rowCount) return emptyFertilizerRateConfig();
-  return parseStoredConfig(res.rows[0].config_json);
+  if (!res.rowCount) {
+    return seedDefaultForCrop(crop);
+  }
+
+  // Crops left empty by the prior "start empty" product choice — re-seed once.
+  if (storedWeeksAreEmpty(res.rows[0].config_json)) {
+    return seedDefaultForCrop(crop);
+  }
+
+  // Turmeric crops that were wrongly auto-seeded with pepper Mixtures — replace once.
+  if (
+    isTurmericCropName(crop) &&
+    storedLooksLikePepperTemplate(res.rows[0].config_json)
+  ) {
+    return seedDefaultForCrop(crop);
+  }
+
+  // Turmeric crops with rates already saved still get plan notes (idempotent).
+  try {
+    await ensureTurmericPlanNotes(crop);
+  } catch (err) {
+    console.error("turmeric plan notes ensure:", err);
+  }
+
+  return parseStoredConfig(res.rows[0].config_json, crop);
 }
 
 export async function saveFertilizerRateConfig(
@@ -269,9 +347,10 @@ export async function saveFertilizerRateConfig(
   }
 
   await ensureFertilizerRateConfigTable();
-  // Preserve empty weeks for crops that have not been configured yet.
-  // Admin "Load defaults" sends a full payload that is stored as-is.
-  const config = normalizeRateConfig(raw, emptyFertilizerRateConfig());
+  const config = normalizeRateConfig(
+    raw,
+    defaultFertilizerRateConfigForCrop(crop)
+  );
   const json = JSON.stringify(config);
 
   const existing = await pool.query(
@@ -285,13 +364,32 @@ export async function saveFertilizerRateConfig(
       [json, crop]
     );
   } else {
-    await pool.query(
-      `INSERT INTO fertilizer_rate_config (id, crop_name, config_json)
-       SELECT next_id, ?, ? FROM (
-         SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM fertilizer_rate_config
-       ) t`,
-      [crop, json]
-    );
+    try {
+      await pool.query(
+        `INSERT INTO fertilizer_rate_config (id, crop_name, config_json)
+         SELECT next_id, ?, ? FROM (
+           SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM fertilizer_rate_config
+         ) t`,
+        [crop, json]
+      );
+    } catch (err: any) {
+      const msg = String(err?.message || err);
+      const dup =
+        err?.code === "ER_DUP_ENTRY" ||
+        err?.errno === 1062 ||
+        /Duplicate/i.test(msg);
+      if (!dup) throw err;
+      await pool.query(
+        `UPDATE fertilizer_rate_config SET config_json = ? WHERE crop_name = ?`,
+        [json, crop]
+      );
+    }
+  }
+
+  try {
+    await ensureTurmericPlanNotes(crop);
+  } catch (err) {
+    console.error("turmeric plan notes after save:", err);
   }
 
   return config;

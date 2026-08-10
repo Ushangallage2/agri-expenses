@@ -3,6 +3,7 @@ import pool from "./db";
 import jwt from "jsonwebtoken";
 import { ensureCropNotesTable } from "./utils/cropNotesDb";
 import { syncFertilizerDueTodos } from "./utils/fertilizerDueTodos";
+import { ensureTurmericPlanNotes } from "./utils/turmericPlanNotes";
 import { cached } from "./utils/memoryCache";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
@@ -19,6 +20,12 @@ export const handler: Handler = async (event) => {
 
     const body = await cached(`cropNotes:${crop}`, TTL_MS, async () => {
       await ensureCropNotesTable();
+
+      try {
+        await ensureTurmericPlanNotes(crop);
+      } catch (seedErr) {
+        console.error("turmeric plan notes:", seedErr);
+      }
 
       try {
         await syncFertilizerDueTodos();

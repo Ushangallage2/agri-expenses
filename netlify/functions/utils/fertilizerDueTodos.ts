@@ -63,9 +63,9 @@ export async function getWeekTreatmentProgress(
       `SELECT applied_at, notes
        FROM fertilizer_applications
        WHERE crop_name = ?
-         AND (notes LIKE ? OR notes LIKE ?)
+         AND (notes LIKE ? OR notes LIKE ? OR notes LIKE ?)
        ORDER BY applied_at ASC, id ASC`,
-      [cropName, tag, `%Week ${week}%`]
+      [cropName, tag, `%Week ${week}%`, `%Phase ${week}%`]
     );
   }
 
@@ -193,10 +193,7 @@ export async function syncFertilizerDueTodos(): Promise<void> {
         week,
         plantCount
       );
-      const title =
-        week === 0
-          ? weekDef.title || "Pepper Fertilizer Mixtures"
-          : weekDef.title || `Week ${week}`;
+      const title = weekDef.title || (week === 0 ? "Mixtures" : `Week ${week}`);
 
       // 1) Partial cycle in progress — always encourage finishing the rest
       if (progress.incomplete) {
