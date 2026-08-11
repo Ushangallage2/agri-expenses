@@ -441,10 +441,18 @@ export function weekScheduleButtonLabel(w: RescueWeek): string {
 }
 
 /** Pepper monsoon Mixtures week (week 0 with mixtures product) — not turmeric Phase. */
-export function isPepperMixturesWeek(w: RescueWeek | null | undefined): boolean {
+export function isPepperMixturesWeek(
+  w:
+    | {
+        title?: string;
+        lines?: { fertilizerName: string }[];
+      }
+    | null
+    | undefined
+): boolean {
   if (!w) return false;
   if (
-    w.lines.some((l) => l.fertilizerName === "Pepper Fertilizer Mixtures")
+    (w.lines || []).some((l) => l.fertilizerName === "Pepper Fertilizer Mixtures")
   ) {
     return true;
   }
