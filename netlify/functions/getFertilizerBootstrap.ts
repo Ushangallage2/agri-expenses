@@ -12,6 +12,7 @@ import {
 import { ensureCropPlantCountColumn } from "./utils/cropPlantCountDb";
 import { ensureCropStatusColumns } from "./utils/cropStatusDb";
 import { getFertilizerRateConfig } from "./utils/fertilizerRateConfigDb";
+import { listCropFertilizerNotes } from "./utils/cropFertilizerNotesDb";
 import { cached } from "./utils/memoryCache";
 import { readToken } from "./utils/session";
 
@@ -73,9 +74,12 @@ export const handler: Handler = async (event) => {
       let schedules: ReturnType<typeof mapSchedule>[] = [];
       let applications: ReturnType<typeof mapApplication>[] = [];
       let rates: unknown = null;
+      let cropFertilizerNotes: Awaited<
+        ReturnType<typeof listCropFertilizerNotes>
+      > = [];
 
       if (crop) {
-        const [schedRows, appRows, rateConfig] = await Promise.all([
+        const [schedRows, appRows, rateConfig, notes] = await Promise.all([
           pool.query(
             `SELECT id, crop_name, name, description, is_working, created_at
              FROM fertilizer_schedules
@@ -95,6 +99,7 @@ export const handler: Handler = async (event) => {
             [crop]
           ),
           getFertilizerRateConfig(crop),
+          listCropFertilizerNotes(crop),
         ]);
 
         for (const row of schedRows.rows) {
@@ -118,6 +123,7 @@ export const handler: Handler = async (event) => {
           mapApplication(r as Record<string, unknown>)
         );
         rates = rateConfig;
+        cropFertilizerNotes = notes;
       }
 
       return JSON.stringify({
@@ -127,6 +133,7 @@ export const handler: Handler = async (event) => {
         schedules,
         applications,
         rates,
+        cropFertilizerNotes,
         crop: crop || null,
       });
     });
