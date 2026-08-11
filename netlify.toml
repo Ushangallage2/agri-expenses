@@ -17,12 +17,11 @@
 [functions."sendLedgerSummary"]
   schedule = "0 8 * * *"
 
-# Free warm pings — keep bootstrap functions from going fully cold (no extra services)
-[functions."getDashboardBootstrap"]
-  schedule = "*/7 * * * *"
-
-[functions."getFertilizerBootstrap"]
-  schedule = "*/11 * * * *"
+# Free warm ping — keep DB pool / function runtime from going fully cold.
+# Must be a dedicated function (not getDashboardBootstrap / getFertilizerBootstrap):
+# scheduled + public HTTP on the same function often yields 403 in the browser.
+[functions."warmApis"]
+  schedule = "*/8 * * * *"
 
 [dev]
   command = "vite"

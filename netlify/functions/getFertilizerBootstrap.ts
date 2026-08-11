@@ -13,28 +13,10 @@ import { ensureCropPlantCountColumn } from "./utils/cropPlantCountDb";
 import { ensureCropStatusColumns } from "./utils/cropStatusDb";
 import { getFertilizerRateConfig } from "./utils/fertilizerRateConfigDb";
 import { cached } from "./utils/memoryCache";
+import { readToken } from "./utils/session";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 const TTL_MS = 30_000;
-
-function isScheduledWarm(event: {
-  body?: string | null;
-  headers?: Record<string, string | undefined>;
-}) {
-  const h = event.headers || {};
-  if (
-    String(h["x-netlify-event"] || h["X-Netlify-Event"] || "").toLowerCase() ===
-    "schedule"
-  ) {
-    return true;
-  }
-  try {
-    const body = JSON.parse(event.body || "{}");
-    return Boolean(body?.next_run);
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Single round-trip for Fertilizer page: crops, inventory, purchase pack,
@@ -42,14 +24,13 @@ function isScheduledWarm(event: {
  */
 export const handler: Handler = async (event) => {
   try {
-    if (isScheduledWarm(event)) {
-      await pool.query("SELECT 1");
-      return { statusCode: 204, body: "" };
-    }
-
-    const token = event.headers.cookie?.split("token=")?.[1];
+    const token = readToken(event);
     if (!token) return { statusCode: 401, body: "Unauthorized" };
-    jwt.verify(token, JWT_SECRET);
+    try {
+      jwt.verify(token, JWT_SECRET);
+    } catch {
+      return { statusCode: 401, body: "Unauthorized" };
+    }
 
     const crop = String(event.queryStringParameters?.crop || "").trim();
     const cacheKey = crop
@@ -160,6 +141,6 @@ export const handler: Handler = async (event) => {
     };
   } catch (err) {
     console.error(err);
-    return { statusCode: 401, body: "Unauthorized" };
+    return { statusCode: 500, body: "Server error" };
   }
 };
