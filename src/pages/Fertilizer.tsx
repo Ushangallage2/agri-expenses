@@ -741,12 +741,27 @@ export default function FertilizerPage() {
 
   const treatedSoFar = cycleProgress.treated;
   const vinesLeft = cycleProgress.remaining;
+  /** Live preview: after logging what’s in “Treated today”, how many still need this round. */
+  const remainingAfterThisStep = cycleProgress.incomplete
+    ? Math.max(0, vinesLeft - treatedN)
+    : vinesN > 0
+      ? Math.max(0, vinesN - treatedN)
+      : 0;
+  const progressAfterThisStep = cycleProgress.incomplete
+    ? Math.min(cycleProgress.total, treatedSoFar + treatedN)
+    : treatedN;
 
-  // Encourage finishing: default “treated today” to vines still left
+  // Sync treated-today with round progress (do not fight user typing mid-edit:
+  // only when crop/week/remaining changes from data reload).
   useEffect(() => {
-    if (!cycleProgress.incomplete || vinesLeft <= 0) return;
-    setTreatedCount(String(vinesLeft));
-  }, [applyCrop, applyWeek, cycleProgress.incomplete, vinesLeft]);
+    if (cycleProgress.incomplete && vinesLeft > 0) {
+      setTreatedCount(String(vinesLeft));
+      return;
+    }
+    if (!cycleProgress.incomplete && vinesN > 0) {
+      setTreatedCount(String(vinesN));
+    }
+  }, [applyCrop, applyWeek, cycleProgress.incomplete, vinesLeft, vinesN]);
 
   useEffect(() => {
     const treated = Math.max(0, Math.floor(Number(treatedCount) || 0));
@@ -784,6 +799,7 @@ export default function FertilizerPage() {
     pepperMixturesActive,
   ]);
 
+  // Plant count from crop card → Total plants only (never clobber Treated today).
   useEffect(() => {
     if (!applyCrop) return;
     const meta = cropMeta.find(
@@ -791,7 +807,6 @@ export default function FertilizerPage() {
     );
     if (meta && meta.plant_count > 0) {
       setVineCount(String(meta.plant_count));
-      setTreatedCount(String(meta.plant_count));
     }
   }, [applyCrop, cropMeta]);
 
@@ -1259,6 +1274,9 @@ export default function FertilizerPage() {
       if (data.fertilizers) setFertilizers(data.fertilizers);
       await loadApplications(applyCrop);
       play("save");
+      const afterLeft = cycleProgress.incomplete
+        ? Math.max(0, vinesLeft - treatedN)
+        : Math.max(0, vinesN - treatedN);
       const exp = data.expense as
         | {
             amount?: number;
@@ -1279,17 +1297,16 @@ export default function FertilizerPage() {
       setMessage(
         (pepperMixturesActive && extraRound
           ? `Logged Extra round (${lines.length} product(s)) for ${treatedN} vine(s) on ${applyCrop}.`
-          : `Logged ${lines.length} product(s) for ${treatedN}/${
-              vinesN || treatedN
-            } vine(s) on ${applyCrop}.`) +
+          : `Logged ${lines.length} product(s) · −${treatedN} vines on ${applyCrop}.`) +
           (finishWeek
-            ? " Week marked complete — goal reached."
-            : isPartialApply
-              ? ` Step −${treatedN} vines logged; finish the rest when you can.`
+            ? " Round complete — goal reached."
+            : afterLeft > 0
+              ? ` Now ${afterLeft} vines still need it — keep stepping.`
               : "") +
           " Inventory updated." +
           expenseMsg
       );
+      invalidateCache("fertilizer");
       // After save, applications reload; cycleProgress effect will set remaining.
       setSelectedCrop(applyCrop);
       setUseCrop(applyCrop);
@@ -2077,10 +2094,10 @@ export default function FertilizerPage() {
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs text-gold-muted tabular-nums">
                           <span>
-                            {treatedSoFar}/{cycleProgress.total} done
+                            {treatedSoFar}/{cycleProgress.total} done so far
                           </span>
                           <span className="text-amber-200 font-semibold">
-                            {vinesLeft} left
+                            {vinesLeft} still need it
                           </span>
                         </div>
                         <div className="h-2 rounded-full bg-black/40 overflow-hidden">
@@ -2100,28 +2117,35 @@ export default function FertilizerPage() {
                           />
                         </div>
                       </div>
-                      {cycleProgress.lastStepTreated > 0 && (
-                        <p className="text-sm text-emerald-200/95 tabular-nums">
-                          Last step{" "}
+
+                      {treatedN > 0 && treatedN <= vinesLeft && (
+                        <p className="text-sm text-emerald-200/95 tabular-nums leading-relaxed">
+                          This step{" "}
                           <strong className="text-emerald-100">
-                            −{cycleProgress.lastStepTreated}
-                          </strong>{" "}
-                          vines · now{" "}
-                          <strong className="text-amber-200">
-                            {vinesLeft}
-                          </strong>{" "}
-                          still need fertilizer
-                        </p>
-                      )}
-                      {!cycleProgress.lastStepTreated && (
-                        <p className="text-sm text-amber-100/95 tabular-nums">
-                          {treatedSoFar}/{cycleProgress.total} vines already got
-                          fertilizer ·{" "}
-                          <strong className="text-amber-200">
-                            {vinesLeft} vines still need it
+                            −{treatedN}
                           </strong>
+                          {" → "}
+                          then{" "}
+                          <strong className="text-amber-100">
+                            {progressAfterThisStep}/{cycleProgress.total} done
+                          </strong>
+                          {" · "}
+                          <strong className="text-amber-200">
+                            {remainingAfterThisStep} vines still need it
+                          </strong>
+                          {remainingAfterThisStep === 0
+                            ? " — round complete after Log apply"
+                            : ""}
                         </p>
                       )}
+
+                      {cycleProgress.lastStepTreated > 0 && (
+                        <p className="text-xs text-gold-muted tabular-nums">
+                          Last logged step was −{cycleProgress.lastStepTreated}{" "}
+                          vines
+                        </p>
+                      )}
+
                       {cycleProgress.steps.length > 0 && (
                         <ul className="text-xs text-gold-muted space-y-1 max-h-28 overflow-y-auto">
                           {cycleProgress.steps.map((s, i) => (
@@ -2141,15 +2165,15 @@ export default function FertilizerPage() {
                           ))}
                         </ul>
                       )}
+
                       <p className="text-xs text-gold-muted leading-relaxed">
-                        Enter how many you treat next, then Log apply — remaining
-                        updates after each step. A crop todo stays open until the
-                        goal is done.
+                        Example: 105 left and you enter 10 → after Log apply it
+                        becomes 95 left (inventory updates too). Keep stepping
+                        until the goal is done.
                         {cycleProgress.intervalDays > 0 && (
                           <>
                             {" "}
-                            This round has up to {cycleProgress.intervalDays}{" "}
-                            days to finish
+                            Round window: {cycleProgress.intervalDays} days
                             {cycleProgress.cycleDueAt
                               ? ` (by ${cycleProgress.cycleDueAt
                                   .toISOString()
@@ -2173,6 +2197,10 @@ export default function FertilizerPage() {
                               }}
                             >
                               Treat {n}
+                              <span className="opacity-70">
+                                {" "}
+                                → {vinesLeft - n} left
+                              </span>
                             </button>
                           ))}
                         <button
