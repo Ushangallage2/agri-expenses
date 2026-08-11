@@ -87,7 +87,8 @@ export async function getWeekTreatmentProgress(
     if (!at) continue;
     const treated = Number(m[1]) || 0;
     const total = Number(m[2]) || fallbackTotal || 0;
-    const key = `${at.toISOString().slice(0, 16)}:${treated}:${total}`;
+    // Keep second precision so separate logs in the same minute are not merged.
+    const key = `${at.toISOString().slice(0, 19)}:${treated}:${total}`;
     if (seen.has(key)) continue;
     seen.add(key);
     batches.push({ at, treated, total });

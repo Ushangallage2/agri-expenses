@@ -640,7 +640,8 @@ export default function FertilizerPage() {
       if (!weekOk) continue;
       const m = notes.match(/\[treated:(\d+)(?:\/(\d+))?\]/i);
       if (!m) continue;
-      const key = `${String(a.applied_at).slice(0, 16)}:${m[1]}:${m[2] || ""}`;
+      // Second precision avoids collapsing multiple partial logs in one minute.
+      const key = `${String(a.applied_at).slice(0, 19)}:${m[1]}:${m[2] || ""}`;
       if (seen.has(key)) continue;
       seen.add(key);
       batches.push({
