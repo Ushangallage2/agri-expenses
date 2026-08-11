@@ -23,7 +23,13 @@ function addDays(d: Date, days: number): Date {
   return new Date(d.getTime() + days * 86_400_000);
 }
 
-type AppRow = { applied_at: unknown; notes: unknown };
+type AppRow = { id?: unknown; applied_at: unknown; notes: unknown };
+
+export type WeekTreatmentStep = {
+  treated: number;
+  at: Date;
+  remainingAfter: number;
+};
 
 export type WeekTreatmentProgress = {
   treatedInCycle: number;
@@ -38,11 +44,16 @@ export type WeekTreatmentProgress = {
   lastCompletedAt: Date | null;
   /** True when current cycle still has untreated vines. */
   incomplete: boolean;
+  /** Stepwise logs inside the active incomplete cycle (oldest → newest). */
+  steps: WeekTreatmentStep[];
+  /** Most recent step treated count (for “−10” style UI). */
+  lastStepTreated: number;
 };
 
 /**
  * Sum [treated:N/M] batches for a week. When a cycle reaches `total`,
  * accumulator resets (next monsoon / next round).
+ * Prefers [batch:…] so multi-product lines and same-day repeats count once each.
  */
 export async function getWeekTreatmentProgress(
   cropName: string,
@@ -54,7 +65,7 @@ export async function getWeekTreatmentProgress(
   let res;
   if (week === 0) {
     res = await pool.query(
-      `SELECT applied_at, notes
+      `SELECT id, applied_at, notes
        FROM fertilizer_applications
        WHERE crop_name = ?
          AND (
@@ -67,7 +78,7 @@ export async function getWeekTreatmentProgress(
     );
   } else {
     res = await pool.query(
-      `SELECT applied_at, notes
+      `SELECT id, applied_at, notes
        FROM fertilizer_applications
        WHERE crop_name = ?
          AND (notes LIKE ? OR notes LIKE ? OR notes LIKE ?)
@@ -87,8 +98,11 @@ export async function getWeekTreatmentProgress(
     if (!at) continue;
     const treated = Number(m[1]) || 0;
     const total = Number(m[2]) || fallbackTotal || 0;
-    // Keep second precision so separate logs in the same minute are not merged.
-    const key = `${at.toISOString().slice(0, 19)}:${treated}:${total}`;
+    const batch = notes.match(/\[batch:([^\]]+)\]/i)?.[1]?.trim();
+    // One Apply click may insert several fertilizer rows — count once per batch.
+    const key = batch
+      ? `batch:${batch}`
+      : `legacy:${at.toISOString().slice(0, 19)}:${treated}:${total}`;
     if (seen.has(key)) continue;
     seen.add(key);
     batches.push({ at, treated, total });
@@ -100,6 +114,8 @@ export async function getWeekTreatmentProgress(
   let cycleDueAt: Date | null = null;
   let lastCompletedAt: Date | null = null;
   let lastAt: Date | null = null;
+  let steps: WeekTreatmentStep[] = [];
+  let lastStepTreated = 0;
 
   for (const b of batches) {
     lastAt = b.at;
@@ -117,16 +133,27 @@ export async function getWeekTreatmentProgress(
       cycleTotal = b.total > 0 ? b.total : fallbackTotal || cycleTotal;
       cycleStartedAt = null;
       cycleDueAt = null;
+      steps = [];
+      lastStepTreated = 0;
     }
 
     if (!cycleStartedAt) {
       cycleStartedAt = b.at;
       cycleDueAt =
         intervalDays > 0 ? addDays(cycleStartedAt, intervalDays) : null;
+      steps = [];
     }
 
     if (b.total > 0) cycleTotal = b.total;
     cycleTreated += b.treated;
+    lastStepTreated = b.treated;
+    const remainingAfter =
+      cycleTotal > 0 ? Math.max(0, cycleTotal - cycleTreated) : 0;
+    steps.push({
+      treated: b.treated,
+      at: b.at,
+      remainingAfter,
+    });
 
     if (cycleTotal > 0 && cycleTreated >= cycleTotal) {
       // Cycle finished — next apply opens a new round.
@@ -134,6 +161,8 @@ export async function getWeekTreatmentProgress(
       cycleTreated = 0;
       cycleStartedAt = null;
       cycleDueAt = null;
+      steps = [];
+      lastStepTreated = 0;
     }
   }
 
@@ -151,6 +180,8 @@ export async function getWeekTreatmentProgress(
       cycleTreated = 0;
       cycleStartedAt = null;
       cycleDueAt = null;
+      steps = [];
+      lastStepTreated = 0;
     }
   }
 
@@ -168,6 +199,8 @@ export async function getWeekTreatmentProgress(
     lastAt,
     lastCompletedAt,
     incomplete,
+    steps,
+    lastStepTreated,
   };
 }
 
@@ -258,9 +291,13 @@ export async function syncFertilizerDueTodos(): Promise<void> {
         const dueTxt = progress.cycleDueAt
           ? ` · finish by ${progress.cycleDueAt.toISOString().slice(0, 10)}`
           : "";
+        const lastTxt =
+          progress.lastStepTreated > 0
+            ? ` · last step −${progress.lastStepTreated}`
+            : "";
         const note =
           `FINISH REST: ${title} — ${progress.treatedInCycle}/${progress.totalPlants} vines done · ` +
-          `${progress.remaining} vines still need fertilizer${dueTxt} · open Apply week and treat the rest`;
+          `${progress.remaining} vines still need fertilizer${lastTxt}${dueTxt} · open Apply week and treat the rest`;
         await upsertOpenTodo(cropName, source, note);
         continue;
       }
@@ -337,7 +374,13 @@ export async function noteFertilizerDueProgress(
 
   const note =
     `FINISH REST: ${title} — ${progress.treatedInCycle}/${progress.totalPlants} vines done · ` +
-    `${progress.remaining} vines still need fertilizer${
+    `${progress.remaining} vines still need fertilizer` +
+    `${
+      progress.lastStepTreated > 0
+        ? ` · last step −${progress.lastStepTreated}`
+        : ""
+    }` +
+    `${
       progress.cycleDueAt
         ? ` · finish by ${progress.cycleDueAt.toISOString().slice(0, 10)}`
         : ""
