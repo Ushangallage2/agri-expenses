@@ -346,7 +346,7 @@ export default function FertilizerPage() {
   );
   const [selectedSchedIds, setSelectedSchedIds] = useState<number[]>([]);
   const [confirmBulkDeleteSched, setConfirmBulkDeleteSched] = useState(false);
-  const [confirmResetStock, setConfirmResetStock] = useState(false);
+  const [confirmUndoStock, setConfirmUndoStock] = useState(false);
   const [confirmFinishAnyway, setConfirmFinishAnyway] = useState<{
     names: string;
     left: number;
@@ -384,9 +384,16 @@ export default function FertilizerPage() {
   );
   const [ratesSaving, setRatesSaving] = useState(false);
 
-  /** Editable purchase pack used by “Add purchases to stock”. */
+  /** Editable purchase pack (optional template list). */
   const [purchasePack, setPurchasePack] = useState<PurchasePackDraft[]>([]);
   const [purchasePackSaving, setPurchasePackSaving] = useState(false);
+
+  /** Add purchase onto an existing catalog fertilizer. */
+  const [purchaseFertId, setPurchaseFertId] = useState("");
+  const [purchaseQty, setPurchaseQty] = useState("");
+  const [purchasePrice, setPurchasePrice] = useState("");
+  const [purchaseNotes, setPurchaseNotes] = useState("");
+  const [purchaseSaving, setPurchaseSaving] = useState(false);
 
   const cropSchedules = useMemo(
     () =>
@@ -1098,34 +1105,6 @@ export default function FertilizerPage() {
     }
   }
 
-  async function loadPurchasePack() {
-    const res = await apiFetch("/getPurchasePack");
-    if (res.status === 401) {
-      navigate("/login");
-      return;
-    }
-    if (!res.ok) throw new Error(await readError(res));
-    const data = await res.json();
-    const items = Array.isArray(data.items) ? data.items : [];
-    setPurchasePack(
-      items.map(
-        (row: {
-          name?: string;
-          unit?: string;
-          stock_qty?: number;
-          unit_price?: number;
-          notes?: string | null;
-        }) => ({
-          name: String(row.name || ""),
-          unit: String(row.unit || "kg"),
-          stock_qty: String(row.stock_qty ?? 0),
-          unit_price: String(row.unit_price ?? 0),
-          notes: row.notes != null ? String(row.notes) : "",
-        })
-      )
-    );
-  }
-
   async function savePurchasePack() {
     if (!isAdmin) return;
     void unlockAudio();
@@ -1173,7 +1152,7 @@ export default function FertilizerPage() {
       );
       play("save");
       setMessage(
-        "Purchase pack saved. Use “Add purchases to stock” to add these quantities to inventory."
+        "Purchase pack saved (template only). Use Add purchase to stock above for inventory."
       );
     } catch (e: any) {
       play("error");
@@ -1183,28 +1162,37 @@ export default function FertilizerPage() {
     }
   }
 
-  async function importPurchasePack(mode: "add" | "set" | "add_if_zero") {
+  async function submitFertilizerPurchase(e: FormEvent) {
+    e.preventDefault();
     if (!isAdmin) return;
-    if (mode === "set") {
-      setConfirmResetStock(true);
-      play("click");
+    const fid = Number(purchaseFertId);
+    const qty = Number(purchaseQty);
+    if (!Number.isFinite(fid) || fid <= 0) {
+      setError("Choose an existing fertilizer from the list");
       return;
     }
-    await runImportPurchasePack(mode);
-  }
-
-  async function runImportPurchasePack(mode: "add" | "set" | "add_if_zero") {
-    if (!isAdmin) return;
+    if (!(qty > 0)) {
+      setError("Enter how much you purchased (greater than 0)");
+      return;
+    }
     void unlockAudio();
     play("click");
-    setSaving(true);
+    setPurchaseSaving(true);
     setError("");
     setMessage("");
     try {
-      const res = await apiFetch("/seedStarterInventory", {
+      const body: Record<string, unknown> = {
+        fertilizerId: fid,
+        amount: qty,
+        notes: purchaseNotes.trim() || null,
+      };
+      if (purchasePrice.trim() !== "") {
+        body.unitPrice = Number(purchasePrice);
+      }
+      const res = await apiFetch("/addFertilizerPurchase", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify(body),
       });
       if (res.status === 401) {
         navigate("/login");
@@ -1212,23 +1200,65 @@ export default function FertilizerPage() {
       }
       if (!res.ok) throw new Error(await readError(res));
       const data = await res.json();
+      if (data.fertilizer) {
+        setFertilizers((prev) => {
+          const next = prev.map((f) =>
+            f.id === data.fertilizer.id ? data.fertilizer : f
+          );
+          if (!next.some((f) => f.id === data.fertilizer.id)) {
+            next.push(data.fertilizer);
+            next.sort((a, b) => a.name.localeCompare(b.name));
+          }
+          return next;
+        });
+      } else {
+        await loadFertilizers();
+      }
       invalidateCache("fertilizer");
-      setFertilizers(data.fertilizers || []);
-      await loadPurchasePack();
       play("save");
+      const fertName =
+        data.fertilizer?.name ||
+        fertilizers.find((f) => f.id === fid)?.name ||
+        "fertilizer";
       setMessage(
-        mode === "add"
-          ? data.hint ||
-              "Purchases added to stock — quantities summed; unit prices updated."
-          : mode === "set"
-            ? data.hint ||
-                "Stock reset to pack quantities and unit prices updated."
-            : data.hint ||
-                "Purchase pack synced — missing products added; empty stocks filled."
+        `Added ${qty} ${data.unit || ""} to ${fertName} stock (purchase logged for undo).`
       );
-    } catch (e: any) {
+      setPurchaseQty("");
+      setPurchaseNotes("");
+    } catch (err: any) {
       play("error");
-      setError(e?.message || "Import failed");
+      setError(err?.message || "Purchase failed");
+    } finally {
+      setPurchaseSaving(false);
+    }
+  }
+
+  async function undoLastStockStep() {
+    if (!isAdmin) return;
+    void unlockAudio();
+    play("click");
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const res = await apiFetch("/undoFertilizerStockStep", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (res.status === 401) {
+        navigate("/login");
+        return;
+      }
+      if (!res.ok) throw new Error(await readError(res));
+      const data = await res.json();
+      await loadFertilizers();
+      invalidateCache("fertilizer");
+      play("success");
+      setMessage(data.hint || "Undid last stock change.");
+    } catch (err: any) {
+      play("error");
+      setError(err?.message || "Undo failed");
     } finally {
       setSaving(false);
     }
@@ -2192,32 +2222,24 @@ export default function FertilizerPage() {
 
                 <div className="flex flex-wrap gap-2 items-center">
                   {isAdmin && (
-                    <>
-                      <button
-                        type="button"
-                        className="glass-btn gold-btn"
-                        disabled={saving}
-                        onClick={() => void importPurchasePack("add")}
-                        title="Adds purchase pack quantities onto current stock; updates unit prices"
-                      >
-                        Add purchases to stock
-                      </button>
-                      <button
-                        type="button"
-                        className="glass-btn text-sm"
-                        disabled={saving}
-                        onClick={() => void importPurchasePack("set")}
-                        title="Admin only: replace stock with pack quantities"
-                      >
-                        Reset stock to pack
-                      </button>
-                    </>
+                    <button
+                      type="button"
+                      className="glass-btn text-sm"
+                      disabled={saving}
+                      onClick={() => {
+                        play("click");
+                        setConfirmUndoStock(true);
+                      }}
+                      title="Undo the last purchase / stock change (click again for earlier steps)"
+                    >
+                      Undo last stock change
+                    </button>
                   )}
                 </div>
                 {isAdmin && (
                   <p className="text-xs text-gold-muted leading-relaxed">
-                    Sync adds these quantities to current inventory (does not
-                    replace stock). Use Reset only if you need to overwrite.
+                    Add purchases under Inventory (pick an existing fertilizer).
+                    Undo walks inventory input one step back each click.
                   </p>
                 )}
 
@@ -3335,6 +3357,121 @@ export default function FertilizerPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="space-y-6">
               <section className="glass-card gold-sheen">
+                <p className="eyebrow">Purchases</p>
+                <h2 className="font-display text-xl text-gold mb-2">
+                  Add purchase to stock
+                </h2>
+                <p className="text-xs text-gold-muted mb-4 leading-relaxed">
+                  Choose an existing fertilizer, enter what you bought, and it
+                  adds onto current stock. Each purchase can be undone one step
+                  at a time.
+                </p>
+                {isAdmin ? (
+                  <form
+                    onSubmit={submitFertilizerPurchase}
+                    className="space-y-3"
+                  >
+                    <label className="block">
+                      <span className="eyebrow mb-1 block">Fertilizer</span>
+                      <select
+                        className="glass-input"
+                        value={purchaseFertId}
+                        onChange={(e) => {
+                          setPurchaseFertId(e.target.value);
+                          const f = fertilizers.find(
+                            (x) => String(x.id) === e.target.value
+                          );
+                          if (f && Number(f.unit_price) > 0) {
+                            setPurchasePrice(String(f.unit_price));
+                          }
+                        }}
+                        required
+                      >
+                        <option value="">Select existing fertilizer…</option>
+                        {fertilizers.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.name} · stock {f.stock_qty} {f.unit}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="block">
+                        <span className="eyebrow mb-1 block">
+                          Qty purchased
+                          {purchaseFertId
+                            ? ` (${
+                                fertilizers.find(
+                                  (f) => String(f.id) === purchaseFertId
+                                )?.unit || "unit"
+                              })`
+                            : ""}
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          className="glass-input"
+                          value={purchaseQty}
+                          onChange={(e) => setPurchaseQty(e.target.value)}
+                          placeholder="e.g. 25"
+                          required
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="eyebrow mb-1 block">
+                          Unit price (optional)
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          className="glass-input"
+                          value={purchasePrice}
+                          onChange={(e) => setPurchasePrice(e.target.value)}
+                          placeholder="leave blank to keep"
+                        />
+                      </label>
+                    </div>
+                    <label className="block">
+                      <span className="eyebrow mb-1 block">Notes (optional)</span>
+                      <input
+                        className="glass-input"
+                        value={purchaseNotes}
+                        onChange={(e) => setPurchaseNotes(e.target.value)}
+                        placeholder="Shop / invoice / monsoon buy…"
+                      />
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="submit"
+                        className="glass-btn gold-btn"
+                        disabled={purchaseSaving || !purchaseFertId}
+                      >
+                        {purchaseSaving ? "Adding…" : "Add purchase to stock"}
+                      </button>
+                      <button
+                        type="button"
+                        className="glass-btn"
+                        disabled={saving || purchaseSaving}
+                        onClick={() => {
+                          play("click");
+                          setConfirmUndoStock(true);
+                        }}
+                      >
+                        Undo last stock change
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <p className="text-sm text-gold-muted">
+                    Observe — purchases are admin-only. Stock list is on the
+                    right.
+                  </p>
+                )}
+              </section>
+
+              <section className="glass-card gold-sheen">
                 <p className="eyebrow">Catalog</p>
                 <h2 className="font-display text-xl text-gold mb-4">
                   {isAdmin
@@ -3343,33 +3480,10 @@ export default function FertilizerPage() {
                       : "Add fertilizer"
                     : "Product catalog"}
                 </h2>
-                {isAdmin && (
-                  <div className="flex flex-wrap gap-2 mb-4 items-center">
-                    <button
-                      type="button"
-                      className="glass-btn gold-btn text-sm"
-                      disabled={saving}
-                      onClick={() => void importPurchasePack("add")}
-                      title="Adds purchase pack quantities onto current stock; updates unit prices"
-                    >
-                      Add purchases to stock
-                    </button>
-                    <button
-                      type="button"
-                      className="glass-btn text-sm"
-                      disabled={saving}
-                      onClick={() => void importPurchasePack("set")}
-                      title="Admin only: replace stock with pack quantities"
-                    >
-                      Reset stock to pack
-                    </button>
-                  </div>
-                )}
                 <p className="text-xs text-gold-muted mb-4 leading-relaxed">
-                  Sync adds purchase-pack quantities to current inventory (does
-                  not replace stock).
-                  {!isAdmin &&
-                    " Admins use Add purchases to stock / Reset stock to pack."}
+                  New products belong here. Day-to-day buys use{" "}
+                  <strong className="text-gold">Add purchase to stock</strong>{" "}
+                  above (existing fertilizer dropdown).
                 </p>
                 {isAdmin ? (
                   <form onSubmit={saveFertilizer} className="space-y-3">
@@ -3475,27 +3589,15 @@ export default function FertilizerPage() {
 
               <section className="glass-card gold-sheen space-y-3">
                 <div>
-                  <p className="eyebrow">Purchases</p>
+                  <p className="eyebrow">Optional</p>
                   <h2 className="font-display text-xl text-gold">
-                    {isAdmin ? "Edit purchase pack" : "Purchase pack"}
+                    {isAdmin ? "Purchase pack template" : "Purchase pack"}
                   </h2>
                   <p className="text-sm text-gold-muted mt-2 leading-relaxed">
-                    {isAdmin ? (
-                      <>
-                        Enter this purchase’s qty (kg) and unit price (/kg). Save
-                        the pack, then use{" "}
-                        <strong>Add purchases to stock</strong> — that adds these
-                        quantities to current inventory and updates prices (does
-                        not replace stock).
-                      </>
-                    ) : (
-                      <>
-                        Read-only view of the saved purchase pack. Admins save
-                        the pack, then use{" "}
-                        <strong>Add purchases to stock</strong> to add these
-                        quantities to inventory (does not replace stock).
-                      </>
-                    )}
+                    Day-to-day buys use{" "}
+                    <strong className="text-gold">Add purchase to stock</strong>{" "}
+                    (existing fertilizer dropdown) above. This pack is only a
+                    saved shopping list template if you still want one.
                   </p>
                 </div>
                 <div className="space-y-3 max-h-[50vh] overflow-y-auto custom-scroll pr-1">
@@ -3662,27 +3764,19 @@ export default function FertilizerPage() {
                     </button>
                     <button
                       type="button"
-                      className="glass-btn gold-btn"
-                      disabled={saving || purchasePackSaving}
-                      onClick={() => void importPurchasePack("add")}
-                      title="Adds purchase pack quantities onto current stock; updates unit prices"
-                    >
-                      Add purchases to stock
-                    </button>
-                    <button
-                      type="button"
                       className="glass-btn text-sm"
                       disabled={saving || purchasePackSaving}
-                      onClick={() => void importPurchasePack("set")}
-                      title="Admin only: replace stock with pack quantities"
+                      onClick={() => {
+                        play("click");
+                        setConfirmUndoStock(true);
+                      }}
                     >
-                      Reset stock to pack
+                      Undo last stock change
                     </button>
                   </div>
                 )}
                 <p className="text-xs text-gold-muted leading-relaxed">
-                  Sync adds these quantities to current inventory (does not
-                  replace stock).
+                  Prefer the purchase form above for single-product stock adds.
                 </p>
               </section>
               </div>
@@ -4905,15 +4999,15 @@ export default function FertilizerPage() {
         onConfirm={() => void removeSchedulesBulk(selectedSchedIds)}
       />
       <ConfirmModal
-        open={confirmResetStock}
-        title="Reset stock to pack?"
-        message="This REPLACES current stock with the purchase pack amounts (does not add). Unit prices will also be set from the pack."
-        confirmLabel="Reset stock"
-        danger={true}
-        onCancel={() => setConfirmResetStock(false)}
+        open={confirmUndoStock}
+        title="Undo last stock change?"
+        message="Reverts the most recent purchase/stock step one level back. Click again later for older steps."
+        confirmLabel="Undo one step"
+        danger={false}
+        onCancel={() => setConfirmUndoStock(false)}
         onConfirm={() => {
-          setConfirmResetStock(false);
-          void runImportPurchasePack("set");
+          setConfirmUndoStock(false);
+          void undoLastStockStep();
         }}
       />
       <ConfirmModal

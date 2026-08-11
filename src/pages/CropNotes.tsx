@@ -810,7 +810,7 @@ export default function CropNotes() {
             type === "todo" &&
             !done &&
             (String(n.source || "").startsWith("fert_due:") ||
-              /^(PAST DUE|FINISH REST|IN PROGRESS):/i.test(n.note));
+              /^(PAST DUE|FINISH REST|IN PROGRESS|ONGOING PLAN):/i.test(n.note));
           const finishRest = fertDue && /^FINISH REST:/i.test(n.note);
           return (
             <article

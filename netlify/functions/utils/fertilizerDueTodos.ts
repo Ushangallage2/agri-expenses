@@ -272,6 +272,35 @@ export async function syncFertilizerDueTodos(): Promise<void> {
     // Empty / unset rates for this crop → no due todos (do not fall back).
     if (!hasFertilizerRates(config)) continue;
 
+    const pinned = (config.ongoingWeeks || [])
+      .map((n) => Math.floor(Number(n)))
+      .filter((n) => Number.isFinite(n));
+    const pinnedSet = new Set(pinned);
+
+    let autoPlanWeek: number | null = null;
+    if (pinnedSet.size === 0) {
+      for (const weekDef of config.weeks) {
+        const week = weekDef.week;
+        const interval = Number(config.intervals[String(week)]);
+        if (!(interval > 0)) continue;
+        const progress = await getWeekTreatmentProgress(
+          cropName,
+          week,
+          plantCount,
+          interval
+        );
+        if (progress.incomplete) {
+          autoPlanWeek = week;
+          break;
+        }
+        const baseAt = progress.lastCompletedAt || progress.lastAt;
+        if (!baseAt || addDays(baseAt, interval) < now) {
+          autoPlanWeek = week;
+          break;
+        }
+      }
+    }
+
     for (const weekDef of config.weeks) {
       const week = weekDef.week;
       const interval = Number(config.intervals[String(week)]);
@@ -286,7 +315,7 @@ export async function syncFertilizerDueTodos(): Promise<void> {
       );
       const title = weekDef.title || (week === 0 ? "Mixtures" : `Week ${week}`);
 
-      // 1) Partial cycle in progress — always encourage finishing the rest
+      // Actively applied / mid-round plans always stay on the todo list
       if (progress.incomplete) {
         const dueTxt = progress.cycleDueAt
           ? ` · finish by ${progress.cycleDueAt.toISOString().slice(0, 10)}`
@@ -303,13 +332,16 @@ export async function syncFertilizerDueTodos(): Promise<void> {
       }
 
       const baseAt = progress.lastCompletedAt || progress.lastAt;
-      const pastDue =
-        !baseAt || addDays(baseAt, interval) < now;
+      const pastDue = !baseAt || addDays(baseAt, interval) < now;
+      const isOngoingPlan =
+        pinnedSet.size > 0
+          ? pinnedSet.has(week)
+          : autoPlanWeek != null && week === autoPlanWeek;
 
-      if (pastDue) {
+      if (pastDue && isOngoingPlan) {
         const dueNote = baseAt
-          ? `PAST DUE: ${title} — last finished ${String(baseAt).slice(0, 10)} · every ${interval} days · ${plantCount} plants · start Apply week`
-          : `PAST DUE: ${title} — never logged · every ${interval} days · ${plantCount} plants · start Apply week`;
+          ? `ONGOING PLAN: ${title} — last finished ${String(baseAt).slice(0, 10)} · every ${interval} days · ${plantCount} plants · open Apply week`
+          : `ONGOING PLAN: ${title} — not logged yet · every ${interval} days · ${plantCount} plants · open Apply week`;
         await upsertOpenTodo(cropName, source, dueNote);
       } else {
         await pool.query(
