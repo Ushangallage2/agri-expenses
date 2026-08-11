@@ -623,7 +623,17 @@ export default function FertilizerPage() {
    * Plants treated in the current (incomplete) cycle for this week.
    * When a cycle hits the crop total, the accumulator resets for the next round.
    */
-  const cycleProgress = useMemo(() => {
+  const cycleProgress = useMemo((): {
+    treated: number;
+    total: number;
+    remaining: number;
+    intervalDays: number;
+    cycleStartedAt: Date | null;
+    cycleDueAt: Date | null;
+    incomplete: boolean;
+    steps: { treated: number; at: string; remainingAfter: number }[];
+    lastStepTreated: number;
+  } => {
     const seen = new Set<string>();
     const batches: { treated: number; total: number; at: string }[] = [];
     const intervalDays = Number(rateConfig.intervals?.[String(applyWeek)]) || 0;
@@ -719,13 +729,16 @@ export default function FertilizerPage() {
       lastStepTreated = 0;
     }
     const remaining = total > 0 ? Math.max(0, total - treated) : 0;
+    // Copy dates out so TS does not narrow them to `null` after the expiry `if`.
+    const startedAtOut: Date | null = cycleStartedAt;
+    const dueAtOut: Date | null = cycleDueAt;
     return {
       treated,
       total,
       remaining,
       intervalDays,
-      cycleStartedAt,
-      cycleDueAt,
+      cycleStartedAt: startedAtOut,
+      cycleDueAt: dueAtOut,
       incomplete: treated > 0 && remaining > 0,
       steps,
       lastStepTreated,
@@ -741,6 +754,9 @@ export default function FertilizerPage() {
 
   const treatedSoFar = cycleProgress.treated;
   const vinesLeft = cycleProgress.remaining;
+  const cycleDueLabel = cycleProgress.cycleDueAt
+    ? cycleProgress.cycleDueAt.toISOString().slice(0, 10)
+    : "";
   /** Live preview: after logging what’s in “Treated today”, how many still need this round. */
   const remainingAfterThisStep = cycleProgress.incomplete
     ? Math.max(0, vinesLeft - treatedN)
@@ -1100,36 +1116,6 @@ export default function FertilizerPage() {
     } finally {
       setPurchasePackSaving(false);
     }
-  }
-
-  async function loadCrops() {
-    const res = await apiFetch("/getCrops");
-    if (res.status === 401) {
-      navigate("/login");
-      return;
-    }
-    if (!res.ok) throw new Error(await readError(res));
-    const rows = (await res.json()) as {
-      name: string;
-      plant_count?: number;
-      status?: string;
-    }[];
-    const active = rows.filter(
-      (r) => String(r.status || "active").toLowerCase() !== "closed"
-    );
-    setCropMeta(
-      active.map((r) => ({
-        name: r.name,
-        plant_count: Number(r.plant_count) || 0,
-        status: String(r.status || "active"),
-      }))
-    );
-    const names = active.map((r) => r.name).filter(Boolean);
-    setCrops(names);
-    // Drop closed crop from operating pickers if deep-linked
-    setSelectedCrop((prev) => (prev && !names.includes(prev) ? "" : prev));
-    setApplyCrop((prev) => (prev && !names.includes(prev) ? "" : prev));
-    setUseCrop((prev) => (prev && !names.includes(prev) ? "" : prev));
   }
 
   async function importPurchasePack(mode: "add" | "set" | "add_if_zero") {
@@ -2174,12 +2160,7 @@ export default function FertilizerPage() {
                           <>
                             {" "}
                             Round window: {cycleProgress.intervalDays} days
-                            {cycleProgress.cycleDueAt
-                              ? ` (by ${cycleProgress.cycleDueAt
-                                  .toISOString()
-                                  .slice(0, 10)})`
-                              : ""}
-                            .
+                            {cycleDueLabel ? ` (by ${cycleDueLabel})` : ""}.
                           </>
                         )}
                       </p>
