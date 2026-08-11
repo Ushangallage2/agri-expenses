@@ -1336,23 +1336,11 @@ export default function FertilizerPage() {
       const afterLeft = cycleProgress.incomplete
         ? Math.max(0, vinesLeft - treatedN)
         : Math.max(0, vinesN - treatedN);
-      const exp = data.expense as
-        | {
-            amount?: number;
-            pricedLines?: number;
-            skippedNoPrice?: string[];
-          }
-        | null
-        | undefined;
-      let expenseMsg = "";
-      if (exp && Number(exp.amount) < 0) {
-        expenseMsg = ` Ledger expense ${Math.abs(Number(exp.amount)).toLocaleString()} logged for this week.`;
-      } else if (exp && Array.isArray(exp.skippedNoPrice) && exp.skippedNoPrice.length) {
-        expenseMsg =
-          " No ledger expense — set unit prices on Inventory for: " +
-          exp.skippedNoPrice.join(", ") +
-          ".";
-      }
+      const est = Number(data.estimatedCost) || 0;
+      const estMsg =
+        est > 0
+          ? ` Est. stock value used ~${est.toLocaleString()} (not added to ledger — already paid).`
+          : "";
       setMessage(
         (pepperMixturesActive && extraRound
           ? `Logged Extra round (${lines.length} product(s)) for ${treatedN} vine(s) on ${applyCrop}.`
@@ -1363,7 +1351,7 @@ export default function FertilizerPage() {
               ? ` Now ${afterLeft} vines still need it — keep stepping.`
               : "") +
           " Inventory updated." +
-          expenseMsg
+          estMsg
       );
       invalidateCache("fertilizer");
       // After save, applications reload; cycleProgress effect will set remaining.
@@ -2816,7 +2804,7 @@ export default function FertilizerPage() {
                                     fert.unit_price,
                                     fert.unit
                                   ).toLocaleString()}`
-                                : " · set unit price to log expense"}
+                                : " · set unit price for estimates"}
                               {short ? " · SHORT STOCK" : ""}
                             </p>
                           </div>
@@ -2844,7 +2832,7 @@ export default function FertilizerPage() {
                           {r.hasPrice ? (
                             <span className="text-amber-200/90">
                               {" "}
-                              → expense{" "}
+                              → est.{" "}
                               <Money value={r.cost} />
                             </span>
                           ) : (
@@ -2860,13 +2848,17 @@ export default function FertilizerPage() {
                         {applyLivePreview.totalCost > 0 ? (
                           <>
                             {" "}
-                            · week expense{" "}
+                            · est. value{" "}
                             <Money value={applyLivePreview.totalCost} />
+                            <span className="block text-xs font-normal text-gold-muted mt-1">
+                              Display only — apply updates stock, not the expense
+                              list (purchases are logged when you buy).
+                            </span>
                           </>
                         ) : applyLivePreview.unpriced > 0 ? (
                           <span className="text-sm font-normal text-gold-muted">
                             {" "}
-                            · set prices on Inventory to auto-log expense
+                            · set prices on Inventory to see estimates
                           </span>
                         ) : null}
                       </p>
@@ -2891,9 +2883,9 @@ export default function FertilizerPage() {
                         ? "Observe — view only"
                         : pepperMixturesActive
                         ? extraRound
-                          ? "Log Extra round, stock & expense"
-                          : "Log Mixtures, stock & expense"
-                        : `Log ${weekScheduleButtonLabel(activeRescueWeek)}, stock & expense`}
+                          ? "Log Extra round & update stock"
+                          : "Log Mixtures & update stock"
+                        : `Log ${weekScheduleButtonLabel(activeRescueWeek)} & update stock`}
                   </button>
                   </>
                   )}

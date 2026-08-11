@@ -248,64 +248,16 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
       }
     }
 
-    // Ledger expense for this week (prices × stock used). Negative = expense.
-    let expenseLogged: {
-      amount: number;
-      reason: string;
-      pricedLines: number;
-      skippedNoPrice: string[];
-    } | null = null;
-
+    // Prices are for display / stock valuation only — apply does not create
+    // ledger expenses (purchases were already paid and logged separately).
     const priced = resolved.filter((r) => r.lineCost > 0);
-    const skippedNoPrice = resolved
-      .filter((r) => !(r.unitPrice > 0))
-      .map((r) => r.name);
-    const totalCost = Number(
+    const estimatedCost = Number(
       priced.reduce((s, r) => s + r.lineCost, 0).toFixed(2)
     );
-
-    if (totalCost > 0 && createdBy) {
-      const weekPart =
-        weekLabel ||
-        (weekNumber === 0
-          ? "Pepper Fertilizer Mixtures"
-          : weekNumber != null
-            ? `Week ${weekNumber}`
-            : "Fertilizer apply");
-      const breakdown = priced
-        .map(
-          (r) =>
-            `${r.name} ${r.deduct.toFixed(3)} ${r.stockUnit} @ ${r.unitPrice}=${r.lineCost}`
-        )
-        .join("; ");
-      const reason = `Fertilizer · ${weekPart} · ${breakdown}`.slice(0, 480);
-      const dateOnly = appliedAt.slice(0, 10);
-
-      await pool.query(
-        `INSERT INTO expenses (expender, reason, amount, crop, created_at)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [createdBy, reason, -totalCost, cropName, `${dateOnly} 12:00:00`]
-      );
-
-      expenseLogged = {
-        amount: -totalCost,
-        reason,
-        pricedLines: priced.length,
-        skippedNoPrice,
-      };
-    } else if (resolved.length && skippedNoPrice.length === resolved.length) {
-      expenseLogged = {
-        amount: 0,
-        reason: "",
-        pricedLines: 0,
-        skippedNoPrice,
-      };
-    }
 
     invalidate("fertilizers:");
     invalidate("fertilizer:");
     invalidate("fertilizerRates:");
-    invalidate("expenses:");
     invalidate("dashboard:");
     invalidate("cropTodos:");
     invalidate("cropNotes:");
@@ -314,7 +266,8 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         applications,
-        expense: expenseLogged,
+        estimatedCost,
+        expense: null,
         fertilizers: stockRows.rows.map((r) => ({
           id: Number(r.id),
           name: String(r.name),
