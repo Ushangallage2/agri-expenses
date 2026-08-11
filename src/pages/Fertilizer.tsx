@@ -303,6 +303,7 @@ export default function FertilizerPage() {
     draft: string;
   } | null>(null);
   const [noteSaving, setNoteSaving] = useState(false);
+  const [finishAnywaySaving, setFinishAnywaySaving] = useState(false);
   const [selectedCrop, setSelectedCrop] = useState(cropParam);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1237,6 +1238,76 @@ export default function FertilizerPage() {
     }
   }
 
+  async function finishRoundAnyway(
+    lines?: { name: string; remaining: number; total: number }[]
+  ) {
+    if (!isAdmin || !applyCrop) return;
+    const targets = (lines && lines.length > 0
+      ? lines
+      : unfinishedLines.map((u) => ({
+          name: u.name,
+          remaining: u.remaining,
+          total: u.total,
+        }))
+    ).filter((u) => u.remaining > 0 && u.total > 0);
+
+    if (!targets.length) {
+      setError("Nothing left to skip on this week");
+      return;
+    }
+
+    const names = targets.map((t) => t.name).join(", ");
+    const left = targets.reduce((s, t) => s + t.remaining, 0);
+    const ok = window.confirm(
+      `Finish anyway for ${applyCrop}?\n\nSkip remaining plants without applying fertilizer:\n${names}\n\n(~${left} plant-slot(s) skipped). Stock will not change.`
+    );
+    if (!ok) return;
+
+    void unlockAudio();
+    play("click");
+    setFinishAnywaySaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const res = await apiFetch("/finishFertilizerRound", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cropName: applyCrop,
+          weekNumber: applyWeek,
+          weekLabel: mixturesWeekLabel(),
+          appliedAt: applyDate,
+          lines: targets.map((t) => {
+            const fert = fertilizers.find((f) => f.name === t.name);
+            return {
+              fertilizerId: fert?.id,
+              fertilizerName: t.name,
+              remaining: t.remaining,
+              total: t.total,
+            };
+          }),
+        }),
+      });
+      if (res.status === 401) {
+        navigate("/login");
+        return;
+      }
+      if (!res.ok) throw new Error(await readError(res));
+      await loadApplications(applyCrop);
+      invalidateCache("fertilizer");
+      play("success");
+      setMarkWeekComplete(false);
+      setMessage(
+        `Finished anyway — skipped remaining plants for ${names} on ${applyCrop}. Round closed.`
+      );
+    } catch (e: any) {
+      play("error");
+      setError(e?.message || "Finish anyway failed");
+    } finally {
+      setFinishAnywaySaving(false);
+    }
+  }
+
   async function applyRescueWeek(e: FormEvent) {
     e.preventDefault();
     if (!isAdmin) return;
@@ -2067,6 +2138,70 @@ export default function FertilizerPage() {
                     </div>
                   ) : (
                   <>
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-wide text-gold-muted">
+                      Season weeks
+                      {currentSeasonWeek != null ? (
+                        <span className="text-emerald-300/90 normal-case tracking-normal">
+                          {" "}
+                          · ongoing:{" "}
+                          {weekScheduleButtonLabel(
+                            rateWeeks.find((w) => w.week === currentSeasonWeek) ||
+                              activeRescueWeek
+                          )}
+                        </span>
+                      ) : null}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {rateWeeks.map((w) => {
+                        const st = seasonWeekStatus.find(
+                          (s) => s.week === w.week
+                        );
+                        const onNow = Boolean(st?.isCurrent);
+                        const mid = Boolean(st?.hasIncompleteLine);
+                        const selected = applyWeek === w.week;
+                        return (
+                          <button
+                            key={w.week}
+                            type="button"
+                            className={`glass-btn relative ${
+                              selected ? "gold-btn" : ""
+                            } ${
+                              onNow
+                                ? "ring-2 ring-emerald-400 shadow-[0_0_0_1px_rgba(52,211,153,0.45)] bg-emerald-950/40"
+                                : mid
+                                  ? "ring-2 ring-amber-400/80 bg-amber-950/30"
+                                  : ""
+                            }`}
+                            onClick={() => {
+                              play("click");
+                              setApplyWeek(w.week);
+                              if (!isPepperMixturesWeek(w)) setExtraRound(false);
+                            }}
+                          >
+                            {onNow && (
+                              <span className="absolute -top-1.5 -right-1.5 rounded-full bg-emerald-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-950">
+                                On
+                              </span>
+                            )}
+                            {!onNow && mid && (
+                              <span className="absolute -top-1.5 -right-1.5 rounded-full bg-amber-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-950">
+                                Mid
+                              </span>
+                            )}
+                            {weekScheduleButtonLabel(w)}
+                            {rateConfig.intervals?.[String(w.week)]
+                              ? ` · ${rateConfig.intervals[String(w.week)]}d`
+                              : ""}
+                            {st?.complete ? (
+                              <span className="opacity-70"> · done</span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <label className="block">
                       <span className="eyebrow mb-1 flex items-center gap-2 flex-wrap">
@@ -2147,16 +2282,34 @@ export default function FertilizerPage() {
                         are putting on today.
                       </p>
                       {unfinishedLines.length > 1 && (
-                        <ul className="text-xs text-amber-100/90 space-y-1">
+                        <ul className="text-xs text-amber-100/90 space-y-1.5">
                           {unfinishedLines.map((u) => (
                             <li
                               key={u.name}
-                              className="flex justify-between gap-2 tabular-nums"
+                              className="flex flex-wrap items-center justify-between gap-2 tabular-nums"
                             >
-                              <span>{u.name}</span>
                               <span>
-                                {u.treated}/{u.total} · {u.remaining} left
+                                {u.name}: {u.treated}/{u.total} · {u.remaining}{" "}
+                                left
                               </span>
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  className="glass-btn text-[11px] py-0.5 px-2"
+                                  disabled={finishAnywaySaving || saving}
+                                  onClick={() =>
+                                    void finishRoundAnyway([
+                                      {
+                                        name: u.name,
+                                        remaining: u.remaining,
+                                        total: u.total,
+                                      },
+                                    ])
+                                  }
+                                >
+                                  Skip rest
+                                </button>
+                              )}
                             </li>
                           ))}
                         </ul>
@@ -2278,7 +2431,23 @@ export default function FertilizerPage() {
                         >
                           Treat remaining {vinesLeft}
                         </button>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            className="glass-btn text-sm border border-amber-400/50 text-amber-100"
+                            disabled={finishAnywaySaving || saving}
+                            onClick={() => void finishRoundAnyway()}
+                          >
+                            {finishAnywaySaving
+                              ? "Closing…"
+                              : "Finish anyway — skip remaining plants"}
+                          </button>
+                        )}
                       </div>
+                      <p className="text-[11px] text-gold-muted leading-relaxed">
+                        Finish anyway closes this round without fertilizing the
+                        leftover plants (e.g. weak growth). Stock is unchanged.
+                      </p>
                     </div>
                   )}
 
@@ -2312,66 +2481,6 @@ export default function FertilizerPage() {
                         : " (use when the remaining vines are done / skipped)"}
                     </span>
                   </label>
-
-                  <div className="space-y-2">
-                    <p className="text-[11px] uppercase tracking-wide text-gold-muted">
-                      Season weeks
-                      {currentSeasonWeek != null ? (
-                        <span className="text-emerald-300/90 normal-case tracking-normal">
-                          {" "}
-                          · on now:{" "}
-                          {weekScheduleButtonLabel(
-                            rateWeeks.find((w) => w.week === currentSeasonWeek) ||
-                              activeRescueWeek
-                          )}
-                        </span>
-                      ) : null}
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {rateWeeks.map((w) => {
-                        const st = seasonWeekStatus.find(
-                          (s) => s.week === w.week
-                        );
-                        const onNow = Boolean(st?.isCurrent);
-                        const selected = applyWeek === w.week;
-                        return (
-                          <button
-                            key={w.week}
-                            type="button"
-                            className={`glass-btn relative ${
-                              selected ? "gold-btn" : ""
-                            } ${
-                              onNow && !selected
-                                ? "ring-2 ring-emerald-400/70 border-emerald-400/50"
-                                : onNow && selected
-                                  ? "ring-2 ring-emerald-300/80"
-                                  : ""
-                            }`}
-                            onClick={() => {
-                              play("click");
-                              setApplyWeek(w.week);
-                              if (!isPepperMixturesWeek(w)) setExtraRound(false);
-                            }}
-                          >
-                            {onNow && (
-                              <span className="absolute -top-1.5 -right-1.5 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-950">
-                                On
-                              </span>
-                            )}
-                            {weekScheduleButtonLabel(w)}
-                            {rateConfig.intervals?.[String(w.week)]
-                              ? ` · ${rateConfig.intervals[String(w.week)]}d`
-                              : ""}
-                            {st?.complete ? (
-                              <span className="opacity-70"> · done</span>
-                            ) : st?.hasIncompleteLine ? (
-                              <span className="text-amber-200"> · mid</span>
-                            ) : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
 
                   {pepperMixturesActive && (
                     <div className="space-y-3 rounded-xl border border-emerald-400/25 bg-emerald-950/20 p-3">

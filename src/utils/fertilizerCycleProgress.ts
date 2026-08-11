@@ -299,8 +299,10 @@ export function computeSeasonWeekStatus(opts: {
     };
   });
 
-  const firstOpen = rows.find((r) => !r.complete) || rows.find((r) => r.hasIncompleteLine);
-  const currentWeek = firstOpen?.week ?? rows[0]?.week;
+  const firstMid = rows.find((r) => r.hasIncompleteLine);
+  const firstOpen = rows.find((r) => !r.complete);
+  // Prefer a week mid-round (ongoing), else first not-yet-done week.
+  const currentWeek = firstMid?.week ?? firstOpen?.week ?? rows[0]?.week;
   return rows.map((r) => ({
     ...r,
     isCurrent: currentWeek != null && r.week === currentWeek,
