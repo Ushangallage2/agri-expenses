@@ -626,6 +626,7 @@ export default function FertilizerPage() {
   const cycleProgress = useMemo(() => {
     const seen = new Set<string>();
     const batches: { treated: number; total: number; at: string }[] = [];
+    const intervalDays = Number(rateConfig.intervals?.[String(applyWeek)]) || 0;
     for (const a of applications) {
       if (a.crop_name?.toLowerCase() !== applyCrop.toLowerCase()) continue;
       const notes = String(a.notes || "");
@@ -652,19 +653,68 @@ export default function FertilizerPage() {
 
     let treated = 0;
     let total = vinesN;
+    let cycleStartedAt: Date | null = null;
+    let cycleDueAt: Date | null = null;
     for (const b of batches) {
+      const atDate = new Date(String(b.at).replace(" ", "T"));
+      const validAt = Number.isNaN(atDate.getTime()) ? null : atDate;
+      if (
+        validAt &&
+        cycleDueAt &&
+        intervalDays > 0 &&
+        validAt.getTime() > cycleDueAt.getTime() &&
+        treated > 0 &&
+        total > 0 &&
+        treated < total
+      ) {
+        treated = 0;
+        cycleStartedAt = null;
+        cycleDueAt = null;
+      }
+      if (validAt && !cycleStartedAt) {
+        cycleStartedAt = validAt;
+        cycleDueAt = new Date(
+          validAt.getTime() + intervalDays * 24 * 60 * 60 * 1000
+        );
+      }
       if (b.total > 0) total = b.total;
       treated += b.treated;
-      if (total > 0 && treated >= total) treated = 0;
+      if (total > 0 && treated >= total) {
+        treated = 0;
+        cycleStartedAt = null;
+        cycleDueAt = null;
+      }
+    }
+    if (
+      cycleDueAt &&
+      intervalDays > 0 &&
+      treated > 0 &&
+      total > 0 &&
+      treated < total &&
+      Date.now() > cycleDueAt.getTime()
+    ) {
+      treated = 0;
+      cycleStartedAt = null;
+      cycleDueAt = null;
     }
     const remaining = total > 0 ? Math.max(0, total - treated) : 0;
     return {
       treated,
       total,
       remaining,
+      intervalDays,
+      cycleStartedAt,
+      cycleDueAt,
       incomplete: treated > 0 && remaining > 0,
     };
-  }, [applications, applyCrop, applyWeek, vinesN, pepperMixturesActive]);
+  }, [
+    applications,
+    applyCrop,
+    applyWeek,
+    vinesN,
+    pepperMixturesActive,
+    rateConfig.intervals,
+  ]);
 
   const treatedSoFar = cycleProgress.treated;
   const vinesLeft = cycleProgress.remaining;
@@ -2004,6 +2054,19 @@ export default function FertilizerPage() {
                         “Treated today” is set to the remaining {vinesLeft}. Log
                         another Apply when you fertilize more — a crop todo stays
                         open until those vines are done.
+                        {cycleProgress.intervalDays > 0 && (
+                          <>
+                            {" "}
+                            This round has up to {cycleProgress.intervalDays} days
+                            to finish
+                            {cycleProgress.cycleDueAt
+                              ? ` (by ${cycleProgress.cycleDueAt
+                                  .toISOString()
+                                  .slice(0, 10)})`
+                              : ""}
+                            .
+                          </>
+                        )}
                       </p>
                       <button
                         type="button"

@@ -29,7 +29,13 @@ export type WeekTreatmentProgress = {
   treatedInCycle: number;
   totalPlants: number;
   remaining: number;
+  /** First apply timestamp of the active cycle (if still in completion window). */
+  cycleStartedAt: Date | null;
+  /** Last date/time user can finish the active cycle before it expires. */
+  cycleDueAt: Date | null;
   lastAt: Date | null;
+  /** Last completed full-coverage apply timestamp for this week. */
+  lastCompletedAt: Date | null;
   /** True when current cycle still has untreated vines. */
   incomplete: boolean;
 };
@@ -41,7 +47,8 @@ export type WeekTreatmentProgress = {
 export async function getWeekTreatmentProgress(
   cropName: string,
   week: number,
-  fallbackTotal: number
+  fallbackTotal: number,
+  intervalDays: number
 ): Promise<WeekTreatmentProgress> {
   const tag = `%[week:${week}]%`;
   let res;
@@ -88,15 +95,61 @@ export async function getWeekTreatmentProgress(
 
   let cycleTreated = 0;
   let cycleTotal = fallbackTotal || 0;
+  let cycleStartedAt: Date | null = null;
+  let cycleDueAt: Date | null = null;
+  let lastCompletedAt: Date | null = null;
   let lastAt: Date | null = null;
 
   for (const b of batches) {
     lastAt = b.at;
+    if (
+      cycleStartedAt &&
+      cycleDueAt &&
+      intervalDays > 0 &&
+      b.at.getTime() > cycleDueAt.getTime() &&
+      cycleTreated > 0 &&
+      cycleTotal > 0 &&
+      cycleTreated < cycleTotal
+    ) {
+      // Previous partial cycle expired before completion.
+      cycleTreated = 0;
+      cycleTotal = b.total > 0 ? b.total : fallbackTotal || cycleTotal;
+      cycleStartedAt = null;
+      cycleDueAt = null;
+    }
+
+    if (!cycleStartedAt) {
+      cycleStartedAt = b.at;
+      cycleDueAt =
+        intervalDays > 0 ? addDays(cycleStartedAt, intervalDays) : null;
+    }
+
     if (b.total > 0) cycleTotal = b.total;
     cycleTreated += b.treated;
+
     if (cycleTotal > 0 && cycleTreated >= cycleTotal) {
-      // Cycle finished — start fresh for next round
+      // Cycle finished — next apply opens a new round.
+      lastCompletedAt = b.at;
       cycleTreated = 0;
+      cycleStartedAt = null;
+      cycleDueAt = null;
+    }
+  }
+
+  if (
+    cycleStartedAt &&
+    cycleDueAt &&
+    intervalDays > 0 &&
+    cycleTreated > 0 &&
+    cycleTotal > 0 &&
+    cycleTreated < cycleTotal
+  ) {
+    const now = new Date();
+    if (now.getTime() > cycleDueAt.getTime()) {
+      // Round window ended with unfinished vines; reset active progress.
+      cycleTreated = 0;
+      cycleStartedAt = null;
+      cycleDueAt = null;
     }
   }
 
@@ -109,7 +162,10 @@ export async function getWeekTreatmentProgress(
     treatedInCycle: cycleTreated,
     totalPlants,
     remaining,
+    cycleStartedAt,
+    cycleDueAt,
     lastAt,
+    lastCompletedAt,
     incomplete,
   };
 }
@@ -191,25 +247,30 @@ export async function syncFertilizerDueTodos(): Promise<void> {
       const progress = await getWeekTreatmentProgress(
         cropName,
         week,
-        plantCount
+        plantCount,
+        interval
       );
       const title = weekDef.title || (week === 0 ? "Mixtures" : `Week ${week}`);
 
       // 1) Partial cycle in progress — always encourage finishing the rest
       if (progress.incomplete) {
+        const dueTxt = progress.cycleDueAt
+          ? ` · finish by ${progress.cycleDueAt.toISOString().slice(0, 10)}`
+          : "";
         const note =
           `FINISH REST: ${title} — ${progress.treatedInCycle}/${progress.totalPlants} vines done · ` +
-          `${progress.remaining} vines still need fertilizer · open Apply week and treat the rest`;
+          `${progress.remaining} vines still need fertilizer${dueTxt} · open Apply week and treat the rest`;
         await upsertOpenTodo(cropName, source, note);
         continue;
       }
 
+      const baseAt = progress.lastCompletedAt || progress.lastAt;
       const pastDue =
-        !progress.lastAt || addDays(progress.lastAt, interval) < now;
+        !baseAt || addDays(baseAt, interval) < now;
 
       if (pastDue) {
-        const dueNote = progress.lastAt
-          ? `PAST DUE: ${title} — last finished ${String(progress.lastAt).slice(0, 10)} · every ${interval} days · ${plantCount} plants · start Apply week`
+        const dueNote = baseAt
+          ? `PAST DUE: ${title} — last finished ${String(baseAt).slice(0, 10)} · every ${interval} days · ${plantCount} plants · start Apply week`
           : `PAST DUE: ${title} — never logged · every ${interval} days · ${plantCount} plants · start Apply week`;
         await upsertOpenTodo(cropName, source, dueNote);
       } else {
@@ -251,10 +312,18 @@ export async function noteFertilizerDueProgress(
 ): Promise<void> {
   await ensureCropNotesTable();
   const source = fertDueSource(cropName, week);
+  let interval = 0;
+  try {
+    const cfg = await getFertilizerRateConfig(cropName);
+    interval = Number(cfg?.intervals?.[String(week)]) || 0;
+  } catch {
+    interval = 0;
+  }
   const progress = await getWeekTreatmentProgress(
     cropName,
     week,
-    totalPlants
+    totalPlants,
+    interval
   );
   const title =
     weekLabel ||
@@ -267,7 +336,11 @@ export async function noteFertilizerDueProgress(
 
   const note =
     `FINISH REST: ${title} — ${progress.treatedInCycle}/${progress.totalPlants} vines done · ` +
-    `${progress.remaining} vines still need fertilizer · open Apply week and treat the rest`;
+    `${progress.remaining} vines still need fertilizer${
+      progress.cycleDueAt
+        ? ` · finish by ${progress.cycleDueAt.toISOString().slice(0, 10)}`
+        : ""
+    } · open Apply week and treat the rest`;
 
   await upsertOpenTodo(cropName, source, note);
 }
