@@ -346,6 +346,12 @@ export default function FertilizerPage() {
   );
   const [selectedSchedIds, setSelectedSchedIds] = useState<number[]>([]);
   const [confirmBulkDeleteSched, setConfirmBulkDeleteSched] = useState(false);
+  const [confirmResetStock, setConfirmResetStock] = useState(false);
+  const [confirmFinishAnyway, setConfirmFinishAnyway] = useState<{
+    names: string;
+    left: number;
+    lines: { name: string; remaining: number; total: number }[];
+  } | null>(null);
   const [saveAndApply, setSaveAndApply] = useState(true);
   /** Pending turmeric template overwrite: premium | chemical */
   const [confirmTurmericTemplate, setConfirmTurmericTemplate] = useState<
@@ -732,7 +738,28 @@ export default function FertilizerPage() {
     });
   }, [applyCrop, rateWeeks, applications, vinesN, rateConfig.intervals]);
 
-  const currentSeasonWeek = seasonWeekStatus.find((s) => s.isCurrent)?.week;
+  /** User-pinned ongoing weeks (multiple). Empty = fall back to auto “on now”. */
+  const userOngoingWeeks = useMemo(() => {
+    const raw = rateConfig.ongoingWeeks;
+    if (!Array.isArray(raw) || raw.length === 0) return [] as number[];
+    const allowed = new Set(rateWeeks.map((w) => w.week));
+    return raw
+      .map((n) => Math.floor(Number(n)))
+      .filter((n) => Number.isFinite(n) && allowed.has(n));
+  }, [rateConfig.ongoingWeeks, rateWeeks]);
+
+  const hasUserOngoing = userOngoingWeeks.length > 0;
+
+  const currentSeasonWeek = hasUserOngoing
+    ? userOngoingWeeks.includes(applyWeek)
+      ? applyWeek
+      : userOngoingWeeks[0]
+    : seasonWeekStatus.find((s) => s.isCurrent)?.week;
+
+  const isWeekOngoing = (week: number) =>
+    hasUserOngoing
+      ? userOngoingWeeks.includes(week)
+      : Boolean(seasonWeekStatus.find((s) => s.week === week)?.isCurrent);
 
   const treatedSoFar = cycleProgress.treated;
   const vinesLeft = cycleProgress.remaining;
@@ -809,25 +836,36 @@ export default function FertilizerPage() {
   }, [applyCrop, cropMeta]);
 
   // Keep Apply week in range when crop template switches (pepper 0–4 vs turmeric 1–5).
-  // Prefer the season's current week when the selection is invalid.
+  // Prefer a user-pinned ongoing week, else auto “on now”.
   useEffect(() => {
     if (!rateWeeks.length) return;
     if (!rateWeeks.some((w) => w.week === applyWeek)) {
+      const pinned = hasUserOngoing
+        ? userOngoingWeeks.find((w) => rateWeeks.some((rw) => rw.week === w))
+        : undefined;
       const prefer =
-        currentSeasonWeek != null &&
+        pinned ??
+        (currentSeasonWeek != null &&
         rateWeeks.some((w) => w.week === currentSeasonWeek)
           ? currentSeasonWeek
-          : rateWeeks[0].week;
+          : rateWeeks[0].week);
       setApplyWeek(prefer);
       setExtraRound(false);
     }
-  }, [rateWeeks, applyWeek, currentSeasonWeek]);
+  }, [
+    rateWeeks,
+    applyWeek,
+    currentSeasonWeek,
+    hasUserOngoing,
+    userOngoingWeeks,
+  ]);
 
-  // Jump to the highlighted "on now" week when switching crops.
+  // Jump to a pinned/auto ongoing week when switching crops.
   useEffect(() => {
-    if (!applyCrop || currentSeasonWeek == null) return;
-    if (rateWeeks.some((w) => w.week === currentSeasonWeek)) {
-      setApplyWeek(currentSeasonWeek);
+    if (!applyCrop) return;
+    const prefer = hasUserOngoing ? userOngoingWeeks[0] : currentSeasonWeek;
+    if (prefer != null && rateWeeks.some((w) => w.week === prefer)) {
+      setApplyWeek(prefer);
       setExtraRound(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only on crop change
@@ -855,6 +893,9 @@ export default function FertilizerPage() {
         Number(data?.tankLiters) > 0
           ? Number(data.tankLiters)
           : defaults.tankLiters,
+      ongoingWeeks: Array.isArray(data?.ongoingWeeks)
+        ? data.ongoingWeeks
+        : defaults.ongoingWeeks || [],
     };
   }
 
@@ -870,10 +911,17 @@ export default function FertilizerPage() {
     setError("");
     setMessage("");
     try {
+      const configToSave: FertilizerRateConfig = {
+        ...ratesDraft,
+        ongoingWeeks:
+          selectedCrop.toLowerCase() === applyCrop.toLowerCase()
+            ? rateConfig.ongoingWeeks || ratesDraft.ongoingWeeks || []
+            : ratesDraft.ongoingWeeks || [],
+      };
       const res = await apiFetch("/saveFertilizerRates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cropName: selectedCrop, config: ratesDraft }),
+        body: JSON.stringify({ cropName: selectedCrop, config: configToSave }),
       });
       if (!res.ok) throw new Error(await readError(res));
       const saved = (await res.json()) as FertilizerRateConfig;
@@ -1041,6 +1089,9 @@ export default function FertilizerPage() {
           Number(data.rates.tankLiters) > 0
             ? Number(data.rates.tankLiters)
             : defaults.tankLiters,
+        ongoingWeeks: Array.isArray(data.rates.ongoingWeeks)
+          ? data.rates.ongoingWeeks
+          : defaults.ongoingWeeks || [],
       });
     } else if (!(applyCrop || selectedCrop || cropParam)) {
       setRateConfig(defaultFertilizerRateConfig());
@@ -1135,11 +1186,15 @@ export default function FertilizerPage() {
   async function importPurchasePack(mode: "add" | "set" | "add_if_zero") {
     if (!isAdmin) return;
     if (mode === "set") {
-      const ok = window.confirm(
-        "Reset stock to pack quantities?\n\nThis REPLACES current stock with the purchase pack amounts (does not add). Unit prices will also be set from the pack."
-      );
-      if (!ok) return;
+      setConfirmResetStock(true);
+      play("click");
+      return;
     }
+    await runImportPurchasePack(mode);
+  }
+
+  async function runImportPurchasePack(mode: "add" | "set" | "add_if_zero") {
+    if (!isAdmin) return;
     void unlockAudio();
     play("click");
     setSaving(true);
@@ -1258,11 +1313,15 @@ export default function FertilizerPage() {
 
     const names = targets.map((t) => t.name).join(", ");
     const left = targets.reduce((s, t) => s + t.remaining, 0);
-    const ok = window.confirm(
-      `Finish anyway for ${applyCrop}?\n\nSkip remaining plants without applying fertilizer:\n${names}\n\n(~${left} plant-slot(s) skipped). Stock will not change.`
-    );
-    if (!ok) return;
+    setConfirmFinishAnyway({ names, left, lines: targets });
+    play("click");
+  }
 
+  async function runFinishRoundAnyway(
+    targets: { name: string; remaining: number; total: number }[]
+  ) {
+    if (!isAdmin || !applyCrop || !targets.length) return;
+    const names = targets.map((t) => t.name).join(", ");
     void unlockAudio();
     play("click");
     setFinishAnywaySaving(true);
@@ -1305,6 +1364,64 @@ export default function FertilizerPage() {
       setError(e?.message || "Finish anyway failed");
     } finally {
       setFinishAnywaySaving(false);
+    }
+  }
+
+  async function toggleOngoingWeek(week: number) {
+    if (!isAdmin || !applyCrop) return;
+    const next = userOngoingWeeks.includes(week)
+      ? userOngoingWeeks.filter((w) => w !== week)
+      : [...userOngoingWeeks, week].sort((a, b) => a - b);
+    play("click");
+    setRateConfig((prev) => ({ ...prev, ongoingWeeks: next }));
+    setError("");
+    try {
+      const res = await apiFetch("/saveOngoingWeeks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cropName: applyCrop, ongoingWeeks: next }),
+      });
+      if (res.status === 401) {
+        navigate("/login");
+        return;
+      }
+      if (!res.ok) throw new Error(await readError(res));
+      const data = await res.json();
+      const saved = Array.isArray(data.ongoingWeeks) ? data.ongoingWeeks : next;
+      setRateConfig((prev) => ({ ...prev, ongoingWeeks: saved }));
+      if (data.config) {
+        setRatesDraft((prev) =>
+          prev
+            ? { ...prev, ongoingWeeks: saved }
+            : prev
+        );
+      }
+      invalidateCache("fertilizer");
+      play("success");
+      setMessage(
+        saved.length
+          ? `Ongoing weeks for ${applyCrop}: ${saved
+              .map(
+                (w: number) =>
+                  weekScheduleButtonLabel(
+                    rateWeeks.find((rw) => rw.week === w) || {
+                      week: w,
+                      title: `Week ${w}`,
+                      summary: "",
+                      lines: [],
+                    }
+                  )
+              )
+              .join(", ")}`
+          : `Cleared pinned ongoing weeks for ${applyCrop} (auto highlight again).`
+      );
+    } catch (e: any) {
+      play("error");
+      setError(e?.message || "Failed to save ongoing weeks");
+      // revert optimistic update from server reload path
+      void loadRateConfig(applyCrop).then((cfg) => {
+        if (cfg) setRateConfig(cfg);
+      });
     }
   }
 
@@ -2141,10 +2258,23 @@ export default function FertilizerPage() {
                   <div className="space-y-2">
                     <p className="text-[11px] uppercase tracking-wide text-gold-muted">
                       Season weeks
-                      {currentSeasonWeek != null ? (
+                      {hasUserOngoing ? (
                         <span className="text-emerald-300/90 normal-case tracking-normal">
                           {" "}
-                          · ongoing:{" "}
+                          · ongoing (yours):{" "}
+                          {userOngoingWeeks
+                            .map((wk) =>
+                              weekScheduleButtonLabel(
+                                rateWeeks.find((w) => w.week === wk) ||
+                                  activeRescueWeek
+                              )
+                            )
+                            .join(", ")}
+                        </span>
+                      ) : currentSeasonWeek != null ? (
+                        <span className="text-emerald-300/90 normal-case tracking-normal">
+                          {" "}
+                          · auto ongoing:{" "}
                           {weekScheduleButtonLabel(
                             rateWeeks.find((w) => w.week === currentSeasonWeek) ||
                               activeRescueWeek
@@ -2152,51 +2282,81 @@ export default function FertilizerPage() {
                         </span>
                       ) : null}
                     </p>
+                    <p className="text-[11px] text-gold-muted leading-relaxed">
+                      {isAdmin
+                        ? "Tap a week to open it. Use Pin to mark ongoing — you can pin several at once."
+                        : "Pinned ongoing weeks are highlighted (view only)."}
+                    </p>
                     <div className="flex flex-wrap gap-2">
                       {rateWeeks.map((w) => {
                         const st = seasonWeekStatus.find(
                           (s) => s.week === w.week
                         );
-                        const onNow = Boolean(st?.isCurrent);
+                        const onNow = isWeekOngoing(w.week);
                         const mid = Boolean(st?.hasIncompleteLine);
                         const selected = applyWeek === w.week;
+                        const pinned = userOngoingWeeks.includes(w.week);
                         return (
-                          <button
+                          <div
                             key={w.week}
-                            type="button"
-                            className={`glass-btn relative ${
-                              selected ? "gold-btn" : ""
-                            } ${
+                            className={`inline-flex items-stretch rounded-xl overflow-hidden border ${
                               onNow
-                                ? "ring-2 ring-emerald-400 shadow-[0_0_0_1px_rgba(52,211,153,0.45)] bg-emerald-950/40"
+                                ? "border-emerald-400/70 shadow-[0_0_0_1px_rgba(52,211,153,0.35)]"
                                 : mid
-                                  ? "ring-2 ring-amber-400/80 bg-amber-950/30"
-                                  : ""
+                                  ? "border-amber-400/50"
+                                  : "border-[var(--glass-border)]"
                             }`}
-                            onClick={() => {
-                              play("click");
-                              setApplyWeek(w.week);
-                              if (!isPepperMixturesWeek(w)) setExtraRound(false);
-                            }}
                           >
-                            {onNow && (
-                              <span className="absolute -top-1.5 -right-1.5 rounded-full bg-emerald-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-950">
-                                On
-                              </span>
+                            <button
+                              type="button"
+                              className={`glass-btn relative rounded-none border-0 ${
+                                selected ? "gold-btn" : ""
+                              } ${
+                                onNow ? "bg-emerald-950/45" : mid ? "bg-amber-950/25" : ""
+                              }`}
+                              onClick={() => {
+                                play("click");
+                                setApplyWeek(w.week);
+                                if (!isPepperMixturesWeek(w)) setExtraRound(false);
+                              }}
+                            >
+                              {onNow && (
+                                <span className="absolute -top-1.5 left-1 rounded-full bg-emerald-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-950">
+                                  On
+                                </span>
+                              )}
+                              {!onNow && mid && (
+                                <span className="absolute -top-1.5 left-1 rounded-full bg-amber-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-950">
+                                  Mid
+                                </span>
+                              )}
+                              {weekScheduleButtonLabel(w)}
+                              {rateConfig.intervals?.[String(w.week)]
+                                ? ` · ${rateConfig.intervals[String(w.week)]}d`
+                                : ""}
+                              {st?.complete ? (
+                                <span className="opacity-70"> · done</span>
+                              ) : null}
+                            </button>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                className={`px-2 text-[11px] font-semibold border-l border-[var(--glass-border)] ${
+                                  pinned
+                                    ? "bg-emerald-500/30 text-emerald-100"
+                                    : "bg-black/30 text-gold-muted hover:text-emerald-200"
+                                }`}
+                                title={
+                                  pinned
+                                    ? "Unpin as ongoing"
+                                    : "Pin as ongoing (multiple OK)"
+                                }
+                                onClick={() => void toggleOngoingWeek(w.week)}
+                              >
+                                {pinned ? "Pinned" : "Pin"}
+                              </button>
                             )}
-                            {!onNow && mid && (
-                              <span className="absolute -top-1.5 -right-1.5 rounded-full bg-amber-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-950">
-                                Mid
-                              </span>
-                            )}
-                            {weekScheduleButtonLabel(w)}
-                            {rateConfig.intervals?.[String(w.week)]
-                              ? ` · ${rateConfig.intervals[String(w.week)]}d`
-                              : ""}
-                            {st?.complete ? (
-                              <span className="opacity-70"> · done</span>
-                            ) : null}
-                          </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -4743,6 +4903,35 @@ export default function FertilizerPage() {
         confirmLabel="Delete all selected"
         onCancel={() => setConfirmBulkDeleteSched(false)}
         onConfirm={() => void removeSchedulesBulk(selectedSchedIds)}
+      />
+      <ConfirmModal
+        open={confirmResetStock}
+        title="Reset stock to pack?"
+        message="This REPLACES current stock with the purchase pack amounts (does not add). Unit prices will also be set from the pack."
+        confirmLabel="Reset stock"
+        danger={true}
+        onCancel={() => setConfirmResetStock(false)}
+        onConfirm={() => {
+          setConfirmResetStock(false);
+          void runImportPurchasePack("set");
+        }}
+      />
+      <ConfirmModal
+        open={confirmFinishAnyway != null}
+        title="Finish anyway?"
+        message={
+          confirmFinishAnyway
+            ? `Skip remaining plants without applying fertilizer for ${applyCrop}: ${confirmFinishAnyway.names} (~${confirmFinishAnyway.left} plant-slot(s)). Stock will not change.`
+            : undefined
+        }
+        confirmLabel="Finish anyway"
+        danger={false}
+        onCancel={() => setConfirmFinishAnyway(null)}
+        onConfirm={() => {
+          const payload = confirmFinishAnyway;
+          setConfirmFinishAnyway(null);
+          if (payload) void runFinishRoundAnyway(payload.lines);
+        }}
       />
       <ConfirmModal
         open={confirmTurmericTemplate != null}

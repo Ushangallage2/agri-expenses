@@ -25,6 +25,8 @@ export type FertilizerRateConfig = {
   /** Cadence days per week number (string keys). */
   intervals: Record<string, number>;
   weeks: RescueWeek[];
+  /** User-pinned ongoing weeks for this crop (multiple allowed). */
+  ongoingWeeks?: number[];
 };
 
 export function defaultFertilizerRateConfig(): FertilizerRateConfig {
@@ -33,6 +35,7 @@ export function defaultFertilizerRateConfig(): FertilizerRateConfig {
     tankLiters: 10,
     intervals: { "0": 180, "1": 42, "2": 14, "3": 28, "4": 7 },
     weeks: structuredClone(RESCUE_WEEKS),
+    ongoingWeeks: [],
   };
 }
 
@@ -42,6 +45,7 @@ export function defaultTurmericFertilizerRateConfig(): FertilizerRateConfig {
     tankLiters: 1,
     intervals: { "1": 365, "2": 21, "3": 14, "4": 11, "5": 60 },
     weeks: structuredClone(TURMERIC_PHASES),
+    ongoingWeeks: [],
   };
 }
 
@@ -51,6 +55,7 @@ export function defaultTurmericChemicalFertilizerRateConfig(): FertilizerRateCon
     tankLiters: 1,
     intervals: { "1": 365, "2": 60, "3": 60 },
     weeks: structuredClone(TURMERIC_CHEMICAL_STAGES),
+    ongoingWeeks: [],
   };
 }
 
@@ -121,6 +126,9 @@ export function normalizeRateConfig(
     tankLiters: base.tankLiters,
     intervals: { ...base.intervals },
     weeks: structuredClone(base.weeks),
+    ongoingWeeks: Array.isArray(base.ongoingWeeks)
+      ? [...base.ongoingWeeks]
+      : [],
   };
   if (!raw || typeof raw !== "object") return out;
   const o = raw as Record<string, unknown>;
@@ -177,6 +185,20 @@ export function normalizeRateConfig(
     if (byWeek.size > 0) {
       out.weeks = Array.from(byWeek.values()).sort((a, b) => a.week - b.week);
     }
+  }
+
+  if (Array.isArray(o.ongoingWeeks)) {
+    const allowed = new Set(out.weeks.map((w) => w.week));
+    const seen = new Set<number>();
+    const next: number[] = [];
+    for (const rawWeek of o.ongoingWeeks) {
+      const n = Math.floor(Number(rawWeek));
+      if (!Number.isFinite(n) || seen.has(n)) continue;
+      if (allowed.size > 0 && !allowed.has(n)) continue;
+      seen.add(n);
+      next.push(n);
+    }
+    out.ongoingWeeks = next.sort((a, b) => a - b);
   }
 
   return out;

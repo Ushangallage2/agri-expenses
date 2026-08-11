@@ -174,6 +174,8 @@ export type FertilizerRateConfig = {
   tankLiters: number;
   intervals: Record<string, number>;
   weeks: RescueWeek[];
+  /** User-pinned ongoing weeks for this crop (multiple allowed). */
+  ongoingWeeks?: number[];
 };
 
 export function defaultFertilizerRateConfig(): FertilizerRateConfig {
@@ -182,6 +184,7 @@ export function defaultFertilizerRateConfig(): FertilizerRateConfig {
     tankLiters: 10,
     intervals: { "0": 180, "1": 42, "2": 14, "3": 28, "4": 7 },
     weeks: structuredClone(RESCUE_WEEKS),
+    ongoingWeeks: [],
   };
 }
 
@@ -293,6 +296,7 @@ export function defaultTurmericFertilizerRateConfig(): FertilizerRateConfig {
     tankLiters: 1,
     intervals: { "1": 365, "2": 21, "3": 14, "4": 11, "5": 60 },
     weeks: structuredClone(TURMERIC_PHASES),
+    ongoingWeeks: [],
   };
 }
 
@@ -391,6 +395,7 @@ export function defaultTurmericChemicalFertilizerRateConfig(): FertilizerRateCon
     tankLiters: 1,
     intervals: { "1": 365, "2": 60, "3": 60 },
     weeks: structuredClone(TURMERIC_CHEMICAL_STAGES),
+    ongoingWeeks: [],
   };
 }
 
