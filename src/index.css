@@ -121,6 +121,28 @@
     box-shadow: 0 0 28px rgba(212, 175, 55, 0.35);
   }
 
+  .red-btn {
+    @apply text-white font-semibold;
+    background: linear-gradient(135deg, #f87171, #dc2626 55%, #991b1b);
+    border-color: transparent;
+  }
+
+  .red-btn:hover {
+    filter: brightness(1.06);
+    box-shadow: 0 0 28px rgba(220, 38, 38, 0.35);
+  }
+
+  .glass-btn-red {
+    @apply border-red-400/45 text-red-100;
+    background: rgba(127, 29, 29, 0.35);
+  }
+
+  .glass-btn-red:hover {
+    @apply border-red-400/70;
+    background: rgba(185, 28, 28, 0.4);
+    box-shadow: 0 0 24px rgba(220, 38, 38, 0.2);
+  }
+
   .glass-input {
     @apply w-full p-3 rounded-xl focus:outline-none transition;
     color: var(--ink);

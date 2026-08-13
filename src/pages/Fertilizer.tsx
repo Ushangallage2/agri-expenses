@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiFetch } from "../utils/api";
 import SoundToggle from "../components/SoundToggle";
 import ConfirmModal from "../components/ConfirmModal";
+import PesticidesTab from "../components/PesticidesTab";
 import { play, unlockAudio } from "../utils/sounds";
 import {
   PEPPER_MIXTURE,
@@ -96,7 +97,7 @@ type PriceRow = {
   recorded_at: string;
 };
 
-type Tab = "apply" | "inventory" | "schedules" | "usage" | "rates";
+type Tab = "apply" | "inventory" | "schedules" | "usage" | "rates" | "pesticides";
 
 type CropMeta = { name: string; plant_count: number; status?: string };
 
@@ -2133,9 +2134,10 @@ export default function FertilizerPage() {
     }
   }
 
-  const tabs: { id: Tab; label: string }[] = [
+  const tabs: { id: Tab; label: string; tone?: "red" }[] = [
     { id: "apply", label: "Apply week" },
     { id: "inventory", label: "Inventory" },
+    { id: "pesticides", label: "Pesticides", tone: "red" },
     { id: "schedules", label: "Schedules" },
     { id: "usage", label: "Log usage" },
     ...(isAdmin ? [{ id: "rates" as const, label: "Edit rates" }] : []),
@@ -2176,7 +2178,15 @@ export default function FertilizerPage() {
           <button
             key={t.id}
             type="button"
-            className={`glass-btn ${tab === t.id ? "gold-btn" : ""}`}
+            className={`glass-btn ${
+              tab === t.id
+                ? t.tone === "red"
+                  ? "red-btn"
+                  : "gold-btn"
+                : t.tone === "red"
+                  ? "glass-btn-red"
+                  : ""
+            }`}
             onClick={() => {
               play("click");
               setTab(t.id);
@@ -3351,6 +3361,18 @@ export default function FertilizerPage() {
                 </div>
               </section>
             </div>
+          )}
+
+          {tab === "pesticides" && (
+            <PesticidesTab
+              isAdmin={isAdmin}
+              fertilizers={fertilizers}
+              crops={crops}
+              onFertilizersUpdate={setFertilizers}
+              onError={setError}
+              onMessage={setMessage}
+              navigateLogin={() => navigate("/login")}
+            />
           )}
 
           {tab === "inventory" && (
