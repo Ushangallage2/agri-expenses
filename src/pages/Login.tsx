@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { API } from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { play, unlockAudio } from "../utils/sounds";
@@ -49,6 +49,14 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden">
       <div className="absolute inset-0 gold-sheen pointer-events-none opacity-40" />
+      <div className="absolute top-4 left-4 z-20">
+        <Link
+          to="/"
+          className="text-sm text-gold-muted hover:text-gold tracking-wide"
+        >
+          ← Home
+        </Link>
+      </div>
       <div className="absolute top-4 right-4 z-20">
         <SoundToggle />
       </div>

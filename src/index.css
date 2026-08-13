@@ -703,3 +703,420 @@
     width: 100%;
   }
 }
+
+/* —— Landing (marketing) —— */
+.landing-root {
+  --landing-ink: #f4efe6;
+  --landing-muted: rgba(244, 239, 230, 0.72);
+  --landing-forest: #0c1610;
+  --landing-soil: #1a140c;
+  --landing-spice: #c4a35a;
+  min-height: 100vh;
+  color: var(--landing-ink);
+  background: var(--landing-forest);
+}
+
+.landing-top {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.1rem 1.5rem;
+  pointer-events: none;
+}
+
+.landing-top a {
+  pointer-events: auto;
+  text-decoration: none;
+}
+
+.landing-top-brand {
+  font-family: "Cormorant Garamond", Georgia, serif;
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--landing-ink);
+  text-shadow: 0 1px 18px rgba(0, 0, 0, 0.55);
+}
+
+.landing-top-link {
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--landing-muted);
+  transition: color 0.2s ease;
+}
+
+.landing-top-link:hover {
+  color: var(--landing-ink);
+}
+
+.landing-hero {
+  position: relative;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 0 1.5rem 0;
+  overflow: hidden;
+}
+
+.landing-hero-media {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.landing-hero-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center center;
+  opacity: 0;
+  transform: scale(1.04);
+  transition:
+    opacity 0.85s ease,
+    transform 6s ease-out;
+}
+
+.landing-hero-video.is-active {
+  opacity: 1;
+  transform: scale(1);
+  z-index: 1;
+}
+
+.landing-hero-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(8, 14, 10, 0.4) 0%,
+      rgba(8, 14, 10, 0.1) 28%,
+      rgba(8, 14, 10, 0.22) 58%,
+      rgba(8, 14, 10, 0.45) 78%,
+      rgba(8, 14, 10, 0.72) 100%
+    );
+  pointer-events: none;
+}
+
+.landing-hero-copy {
+  position: relative;
+  z-index: 3;
+  max-width: 36rem;
+  margin-bottom: 4.25rem;
+  padding-bottom: 0.5rem;
+  opacity: 0;
+  transform: translateY(1.25rem);
+  transition:
+    opacity 0.9s ease 0.25s,
+    transform 0.9s ease 0.25s;
+}
+
+.landing-hero-copy.is-ready {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.landing-hero-dots {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 1.35rem;
+  z-index: 4;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.65rem;
+  opacity: 0;
+  transition: opacity 0.6s ease 0.4s;
+}
+
+.landing-hero-dots.is-ready {
+  opacity: 1;
+}
+
+.landing-hero-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  padding: 0;
+  border-radius: 999px;
+  border: 1.5px solid rgba(244, 239, 230, 0.55);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.landing-hero-dot:hover {
+  border-color: rgba(244, 239, 230, 0.9);
+  transform: scale(1.12);
+}
+
+.landing-hero-dot.is-active {
+  background: #e8d5a3;
+  border-color: #e8d5a3;
+  transform: scale(1.15);
+}
+
+@media (min-width: 768px) {
+  .landing-hero-dots {
+    bottom: 1.75rem;
+  }
+
+  .landing-hero-copy {
+    margin-bottom: 5rem;
+  }
+}
+
+.landing-brand {
+  font-family: "Cormorant Garamond", Georgia, serif;
+  font-size: clamp(2.75rem, 8vw, 4.75rem);
+  font-weight: 600;
+  line-height: 0.95;
+  letter-spacing: 0.02em;
+  color: var(--landing-ink);
+  margin: 0 0 1rem;
+  text-shadow: 0 2px 40px rgba(0, 0, 0, 0.45);
+}
+
+.landing-headline {
+  font-family: "Outfit", system-ui, sans-serif;
+  font-size: clamp(1.05rem, 2.4vw, 1.35rem);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--landing-muted);
+  margin: 0 0 0.85rem;
+  max-width: 22rem;
+}
+
+.landing-support {
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: rgba(244, 239, 230, 0.62);
+  margin: 0 0 1.75rem;
+  max-width: 26rem;
+}
+
+.landing-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.85rem 1.25rem;
+}
+
+.landing-cta-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.85rem 1.55rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #0c1610;
+  background: linear-gradient(165deg, #e8d5a3 0%, var(--landing-spice) 55%, #a8892d 100%);
+  text-decoration: none;
+  border: none;
+  transition:
+    filter 0.2s ease,
+    transform 0.2s ease;
+}
+
+.landing-cta-primary:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+
+.landing-cta-secondary {
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--landing-muted);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(244, 239, 230, 0.35);
+  padding-bottom: 0.15rem;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.landing-cta-secondary:hover {
+  color: var(--landing-ink);
+  border-color: rgba(244, 239, 230, 0.7);
+}
+
+.landing-crops {
+  position: relative;
+  background: var(--landing-soil);
+  opacity: 0;
+  transform: translateY(1.5rem);
+  transition:
+    opacity 0.8s ease,
+    transform 0.8s ease;
+}
+
+.landing-crops.is-in {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.landing-crops-copy {
+  padding: 3.5rem 1.5rem 1.75rem;
+  max-width: 40rem;
+}
+
+.landing-section-eyebrow {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--landing-spice);
+  margin: 0 0 0.65rem;
+}
+
+.landing-section-title {
+  font-family: "Cormorant Garamond", Georgia, serif;
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 600;
+  line-height: 1.1;
+  margin: 0 0 0.65rem;
+  color: var(--landing-ink);
+}
+
+.landing-section-support {
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--landing-muted);
+  margin: 0;
+  max-width: 28rem;
+}
+
+.landing-crops-split {
+  display: grid;
+  grid-template-columns: 1fr;
+  min-height: min(70vh, 36rem);
+}
+
+@media (min-width: 768px) {
+  .landing-crops-split {
+    grid-template-columns: 1fr 1fr;
+    min-height: min(78vh, 42rem);
+  }
+}
+
+.landing-crop-panel {
+  position: relative;
+  margin: 0;
+  overflow: hidden;
+  min-height: 16rem;
+}
+
+.landing-crop-panel img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scale(1.04);
+  transition: transform 1.2s ease;
+}
+
+.landing-crops.is-in .landing-crop-panel img {
+  transform: scale(1);
+}
+
+.landing-crop-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    transparent 45%,
+    rgba(8, 12, 10, 0.75) 100%
+  );
+  pointer-events: none;
+}
+
+.landing-crop-panel figcaption {
+  position: absolute;
+  left: 1.25rem;
+  bottom: 1.15rem;
+  z-index: 1;
+  font-family: "Cormorant Garamond", Georgia, serif;
+  font-size: 1.65rem;
+  letter-spacing: 0.04em;
+  color: var(--landing-ink);
+}
+
+.landing-ledger {
+  padding: 4.5rem 1.5rem 5rem;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 0%, rgba(196, 163, 90, 0.12), transparent 55%),
+    linear-gradient(165deg, #0a120e 0%, var(--landing-forest) 50%, #080c0a 100%);
+  opacity: 0;
+  transform: translateY(1.25rem);
+  transition:
+    opacity 0.8s ease,
+    transform 0.8s ease;
+}
+
+.landing-ledger.is-in {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.landing-ledger-support {
+  margin-bottom: 1.75rem;
+}
+
+.landing-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.25rem 1.5rem 2rem;
+  font-size: 0.8rem;
+  color: rgba(244, 239, 230, 0.45);
+  background: #080c0a;
+}
+
+.landing-foot a {
+  color: rgba(244, 239, 230, 0.65);
+  text-decoration: none;
+}
+
+.landing-foot a:hover {
+  color: var(--landing-ink);
+}
+
+.landing-foot-sep {
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-hero-video,
+  .landing-hero-copy,
+  .landing-hero-dots,
+  .landing-crops,
+  .landing-ledger,
+  .landing-crop-panel img {
+    transition: none !important;
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .landing-hero-video.is-active,
+  .landing-hero-copy.is-ready,
+  .landing-hero-dots.is-ready {
+    opacity: 1 !important;
+  }
+}
+
