@@ -227,6 +227,22 @@ export async function ensureFertilizerTables() {
     )
   `);
 
+  // Immutable price snapshot at apply time (same idea as pesticide_use_lines)
+  for (const ddl of [
+    `ALTER TABLE fertilizer_applications
+       ADD COLUMN unit_price DECIMAL(14, 2) NOT NULL DEFAULT 0`,
+    `ALTER TABLE fertilizer_applications
+       ADD COLUMN line_cost DECIMAL(14, 2) NOT NULL DEFAULT 0`,
+    `ALTER TABLE fertilizer_applications
+       ADD COLUMN stock_deducted DECIMAL(14, 3) NOT NULL DEFAULT 0`,
+  ]) {
+    try {
+      await pool.query(ddl);
+    } catch {
+      /* column already exists */
+    }
+  }
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS purchase_pack_items (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -482,6 +498,9 @@ export function mapApplication(row: Record<string, unknown>) {
       row.schedule_step_id != null ? Number(row.schedule_step_id) : null,
     created_by: row.created_by != null ? String(row.created_by) : null,
     created_at: row.created_at,
+    unit_price: toNum(row.unit_price),
+    line_cost: toNum(row.line_cost),
+    stock_deducted: toNum(row.stock_deducted),
   };
 }
 

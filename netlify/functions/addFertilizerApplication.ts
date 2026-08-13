@@ -68,7 +68,7 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
     await ensureFertilizerTables();
 
     const fert = await pool.query(
-      `SELECT id, name, unit, stock_qty FROM fertilizers WHERE id = $1`,
+      `SELECT id, name, unit, stock_qty, unit_price FROM fertilizers WHERE id = $1`,
       [fertilizerId]
     );
     if (!fert.rows[0]) {
@@ -82,6 +82,9 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
     const fertUnit = String(fert.rows[0].unit || "kg");
     const useUnit = unit || fertUnit;
     const deduct = toStockAmount(amount, useUnit, fertUnit);
+    const unitPrice = toNum(fert.rows[0].unit_price);
+    const lineCost =
+      unitPrice > 0 ? Number((deduct * unitPrice).toFixed(2)) : 0;
 
     if (deduct > stock + 1e-9) {
       return {
@@ -122,10 +125,12 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
 
     const inserted = await pool.query(
       `INSERT INTO fertilizer_applications
-        (crop_name, fertilizer_id, amount, unit, applied_at, notes, schedule_step_id, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        (crop_name, fertilizer_id, amount, unit, applied_at, notes, schedule_step_id, created_by,
+         unit_price, line_cost, stock_deducted)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id, crop_name, fertilizer_id, amount, unit, applied_at, notes,
-                 schedule_step_id, created_by, created_at`,
+                 schedule_step_id, created_by, created_at,
+                 unit_price, line_cost, stock_deducted`,
       [
         cropName,
         fertilizerId,
@@ -135,6 +140,9 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
         notes,
         stepId,
         createdBy,
+        unitPrice,
+        lineCost,
+        deduct,
       ]
     );
 

@@ -16,7 +16,8 @@ const baseHandler: Handler = async (event) => {
       ? await pool.query(
           `SELECT a.id, a.crop_name, a.fertilizer_id, f.name AS fertilizer_name,
                   a.amount, a.unit, a.applied_at, a.notes, a.schedule_step_id,
-                  a.created_by, a.created_at
+                  a.created_by, a.created_at,
+                  a.unit_price, a.line_cost, a.stock_deducted
            FROM fertilizer_applications a
            LEFT JOIN fertilizers f ON f.id = a.fertilizer_id
            WHERE a.crop_name = $1
@@ -27,7 +28,8 @@ const baseHandler: Handler = async (event) => {
       : await pool.query(
           `SELECT a.id, a.crop_name, a.fertilizer_id, f.name AS fertilizer_name,
                   a.amount, a.unit, a.applied_at, a.notes, a.schedule_step_id,
-                  a.created_by, a.created_at
+                  a.created_by, a.created_at,
+                  a.unit_price, a.line_cost, a.stock_deducted
            FROM fertilizer_applications a
            LEFT JOIN fertilizers f ON f.id = a.fertilizer_id
            ORDER BY a.applied_at DESC, a.id DESC

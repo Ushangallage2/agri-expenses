@@ -88,6 +88,10 @@ type Application = {
   notes: string | null;
   schedule_step_id: number | null;
   created_by: string | null;
+  /** Frozen at apply/log time — does not change when inventory price updates */
+  unit_price?: number;
+  line_cost?: number;
+  stock_deducted?: number;
 };
 
 type PriceRow = {
@@ -4607,6 +4611,7 @@ export default function FertilizerPage() {
                           <th className="py-2 pr-2 font-normal">Crop</th>
                           <th className="py-2 pr-2 font-normal">Product</th>
                           <th className="py-2 pr-2 font-normal">Amount</th>
+                          <th className="py-2 pr-2 font-normal">Logged cost</th>
                           <th className="py-2 font-normal" />
                         </tr>
                       </thead>
@@ -4630,6 +4635,18 @@ export default function FertilizerPage() {
                             </td>
                             <td className="py-2 pr-2 whitespace-nowrap">
                               {a.amount} {a.unit}
+                            </td>
+                            <td className="py-2 pr-2 whitespace-nowrap text-gold-muted">
+                              {Number(a.unit_price) > 0 ? (
+                                <>
+                                  @ <Money value={Number(a.unit_price)} /> →{" "}
+                                  <Money value={Number(a.line_cost) || 0} />
+                                </>
+                              ) : a.unit === "skip" ? (
+                                "skipped"
+                              ) : (
+                                "—"
+                              )}
                             </td>
                             <td className="py-2 text-right">
                               {isAdmin && (

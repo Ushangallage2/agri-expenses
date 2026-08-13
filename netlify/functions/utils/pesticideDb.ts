@@ -172,13 +172,13 @@ export async function listPesticideUseLogs(
   limit = 80
 ): Promise<PesticideUseLog[]> {
   await ensurePesticideTables();
+  const safeLimit = Math.min(200, Math.max(1, Math.floor(Number(limit) || 80)));
   const logs = await pool.query(
     `SELECT id, batch_id, set_id, set_name, description, note, crop_name,
             applied_at, created_by, created_at
      FROM pesticide_use_logs
      ORDER BY applied_at DESC, id DESC
-     LIMIT $1`,
-    [limit]
+     LIMIT ${safeLimit}`
   );
 
   const out: PesticideUseLog[] = [];

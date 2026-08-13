@@ -141,10 +141,12 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
 
       const inserted = await pool.query(
         `INSERT INTO fertilizer_applications
-          (crop_name, fertilizer_id, amount, unit, applied_at, notes, schedule_step_id, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, NULL, $7)
+          (crop_name, fertilizer_id, amount, unit, applied_at, notes, schedule_step_id, created_by,
+           unit_price, line_cost, stock_deducted)
+         VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, $9, $10)
          RETURNING id, crop_name, fertilizer_id, amount, unit, applied_at, notes,
-                   schedule_step_id, created_by, created_at`,
+                   schedule_step_id, created_by, created_at,
+                   unit_price, line_cost, stock_deducted`,
         [
           cropName,
           fertRow.id,
@@ -153,6 +155,9 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
           appliedAt,
           notes,
           createdBy,
+          0,
+          0,
+          0,
         ]
       );
 

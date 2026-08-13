@@ -199,10 +199,12 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
 
       const inserted = await pool.query(
         `INSERT INTO fertilizer_applications
-          (crop_name, fertilizer_id, amount, unit, applied_at, notes, schedule_step_id, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, NULL, $7)
+          (crop_name, fertilizer_id, amount, unit, applied_at, notes, schedule_step_id, created_by,
+           unit_price, line_cost, stock_deducted)
+         VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, $9, $10)
          RETURNING id, crop_name, fertilizer_id, amount, unit, applied_at, notes,
-                   schedule_step_id, created_by, created_at`,
+                   schedule_step_id, created_by, created_at,
+                   unit_price, line_cost, stock_deducted`,
         [
           cropName,
           item.fertilizerId,
@@ -211,6 +213,9 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
           appliedAt,
           item.notes,
           createdBy,
+          item.unitPrice,
+          item.lineCost,
+          item.deduct,
         ]
       );
 
@@ -248,12 +253,12 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
       }
     }
 
-    // Prices are for display / stock valuation only — apply does not create
-    // ledger expenses (purchases were already paid and logged separately).
+    // Logged snapshot total (frozen on each application row) — not a ledger expense.
     const priced = resolved.filter((r) => r.lineCost > 0);
     const estimatedCost = Number(
       priced.reduce((s, r) => s + r.lineCost, 0).toFixed(2)
     );
+    const loggedCost = estimatedCost;
 
     invalidate("fertilizers:");
     invalidate("fertilizer:");
@@ -267,6 +272,7 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
       body: JSON.stringify({
         applications,
         estimatedCost,
+        loggedCost,
         expense: null,
         fertilizers: stockRows.rows.map((r) => ({
           id: Number(r.id),
