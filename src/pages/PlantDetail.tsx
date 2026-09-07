@@ -17,6 +17,7 @@ type Note = {
   entry_type?: EntryType;
   completed?: number;
   source?: string | null;
+  plant_number?: number | null;
   created_at: string;
 };
 
@@ -29,20 +30,10 @@ type CropImage = {
   created_at: string;
 };
 
-type CropMeta = {
-  name: string;
-  plant_count?: number;
-  status?: string;
-  closed_at?: string | null;
-  closed_plant_count?: number | null;
-  closed_income?: number | null;
-  closed_expense?: number | null;
-  closed_profit?: number | null;
-};
-
-export default function CropNotes() {
-  const { cropName = "" } = useParams();
+export default function PlantDetail() {
+  const { cropName = "", plantNumber: plantParam = "" } = useParams();
   const crop = decodeURIComponent(cropName);
+  const plantNumber = Number(plantParam);
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
   const { isAdmin } = useAuth();
@@ -58,46 +49,21 @@ export default function CropNotes() {
   const [noteToDelete, setNoteToDelete] = useState<number | null>(null);
   const [imageToDelete, setImageToDelete] = useState<number | null>(null);
   const [lightbox, setLightbox] = useState<CropImage | null>(null);
-  const [plantCount, setPlantCount] = useState<string>("0");
-  const [savedPlantCount, setSavedPlantCount] = useState(0);
-  const [cropMeta, setCropMeta] = useState<CropMeta | null>(null);
-  const [savingPlants, setSavingPlants] = useState(false);
-  const [plantMessage, setPlantMessage] = useState<string | null>(null);
-  const [closeConfirm, setCloseConfirm] = useState(false);
-  const [reopenConfirm, setReopenConfirm] = useState(false);
-  const [statusBusy, setStatusBusy] = useState(false);
 
-  const isClosed =
-    String(cropMeta?.status || "active").toLowerCase() === "closed";
-  const closedPlantCount = Number(cropMeta?.closed_plant_count) || 0;
-
+  const validPlant = Number.isInteger(plantNumber) && plantNumber >= 1;
   const openTodoCount = notes.filter(
     (n) => (n.entry_type || "note") === "todo" && !Number(n.completed)
   ).length;
-
   const filteredNotes = notes.filter((n) => {
     const type: EntryType = n.entry_type === "todo" ? "todo" : "note";
     return type === entryType;
   });
 
-  async function loadPlantCount() {
-    const res = await fetch(`${API}/getCrops`, { credentials: "include" });
-    if (res.status === 401) {
-      navigate("/login");
-      return;
-    }
-    if (!res.ok) throw new Error(await res.text());
-    const rows = (await res.json()) as CropMeta[];
-    const match = rows.find((r) => r.name === crop) || null;
-    setCropMeta(match);
-    const n = Number(match?.plant_count) || 0;
-    setPlantCount(String(n));
-    setSavedPlantCount(n);
-  }
+  const mapPath = `/crops/${encodeURIComponent(crop)}/plants`;
 
   async function loadNotes() {
     const res = await fetch(
-      `${API}/getCropNotes?crop=${encodeURIComponent(crop)}`,
+      `${API}/getCropNotes?crop=${encodeURIComponent(crop)}&plant=${plantNumber}`,
       { credentials: "include" }
     );
     if (res.status === 401) {
@@ -110,7 +76,7 @@ export default function CropNotes() {
 
   async function loadImages() {
     const res = await fetch(
-      `${API}/getCropImages?crop=${encodeURIComponent(crop)}`,
+      `${API}/getCropImages?crop=${encodeURIComponent(crop)}&plant=${plantNumber}`,
       { credentials: "include" }
     );
     if (res.status === 401) {
@@ -125,11 +91,11 @@ export default function CropNotes() {
     setError(null);
     try {
       await swrLoad({
-        key: `cropNotes:${crop}`,
+        key: `cropNotes:${crop}:p:${plantNumber}`,
         freshMaxAgeMs: 45_000,
         fetcher: async () => {
           const res = await fetch(
-            `${API}/getCropNotes?crop=${encodeURIComponent(crop)}`,
+            `${API}/getCropNotes?crop=${encodeURIComponent(crop)}&plant=${plantNumber}`,
             { credentials: "include" }
           );
           if (res.status === 401) {
@@ -146,12 +112,6 @@ export default function CropNotes() {
         setError(err.message || "Failed to load notes");
       }
     }
-    try {
-      await loadPlantCount();
-    } catch (err: any) {
-      console.error(err);
-    }
-    // Images are heavy (data URLs) — load after notes paint
     deferWork(() => {
       void loadImages().catch((err: any) => {
         console.error(err);
@@ -164,137 +124,10 @@ export default function CropNotes() {
     }, 80);
   }
 
-  async function savePlantCount(e: React.FormEvent) {
-    e.preventDefault();
-    if (!isAdmin) return;
-    if (isClosed) {
-      setError("Crop is closed — reopen before changing plant count");
-      return;
-    }
-    const n = Number(plantCount);
-    if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
-      setError("Plant count must be a whole number ≥ 0");
-      return;
-    }
-    setSavingPlants(true);
-    setError(null);
-    setPlantMessage(null);
-    void unlockAudio();
-    play("click");
-    try {
-      const res = await fetch(`${API}/updateCropPlantCount`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ crop, plantCount: n }),
-      });
-      if (res.status === 401) {
-        navigate("/login");
-        return;
-      }
-      if (!res.ok) {
-        let msg = await res.text();
-        try {
-          const j = JSON.parse(msg);
-          if (j?.error) msg = j.error;
-        } catch {
-          /* keep text */
-        }
-        throw new Error(msg);
-      }
-      setSavedPlantCount(n);
-      setPlantCount(String(n));
-      invalidateCache(`plantMap:${crop}`);
-      play("save");
-      setPlantMessage("Plant count saved");
-      setTimeout(() => setPlantMessage(null), 2500);
-    } catch (err: any) {
-      play("error");
-      setError(err.message || "Failed to save plant count");
-    } finally {
-      setSavingPlants(false);
-    }
-  }
-
-  async function runCloseCrop() {
-    setStatusBusy(true);
-    setError(null);
-    void unlockAudio();
-    play("click");
-    try {
-      const res = await fetch(`${API}/closeCrop`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ crop }),
-      });
-      if (res.status === 401) {
-        navigate("/login");
-        return;
-      }
-      if (!res.ok) {
-        let msg = await res.text();
-        try {
-          const j = JSON.parse(msg);
-          if (j?.error) msg = j.error;
-        } catch {
-          /* keep */
-        }
-        throw new Error(msg);
-      }
-      play("save");
-      setCloseConfirm(false);
-      invalidateCache(`plantMap:${crop}`);
-      await loadPlantCount();
-    } catch (err: any) {
-      play("error");
-      setError(err.message || "Failed to close crop");
-    } finally {
-      setStatusBusy(false);
-    }
-  }
-
-  async function runReopenCrop() {
-    setStatusBusy(true);
-    setError(null);
-    void unlockAudio();
-    play("click");
-    try {
-      const res = await fetch(`${API}/reopenCrop`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ crop }),
-      });
-      if (res.status === 401) {
-        navigate("/login");
-        return;
-      }
-      if (!res.ok) {
-        let msg = await res.text();
-        try {
-          const j = JSON.parse(msg);
-          if (j?.error) msg = j.error;
-        } catch {
-          /* keep */
-        }
-        throw new Error(msg);
-      }
-      play("save");
-      setReopenConfirm(false);
-      invalidateCache(`plantMap:${crop}`);
-      await loadPlantCount();
-    } catch (err: any) {
-      play("error");
-      setError(err.message || "Failed to reopen crop");
-    } finally {
-      setStatusBusy(false);
-    }
-  }
-
   useEffect(() => {
-    loadAll();
-  }, [crop]);
+    if (!validPlant) return;
+    void loadAll();
+  }, [crop, plantNumber, validPlant]);
 
   async function onPickFile(file: File | null) {
     if (!isAdmin || !file) return;
@@ -321,10 +154,16 @@ export default function CropNotes() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ crop, imageData: dataUrl, mimeType }),
+        body: JSON.stringify({
+          crop,
+          imageData: dataUrl,
+          mimeType,
+          plantNumber,
+        }),
       });
       if (!res.ok) throw new Error(await res.text());
       play("save");
+      invalidateCache(`plantMap:${crop}`);
       await loadImages();
     } catch (err: any) {
       play("error");
@@ -353,6 +192,7 @@ export default function CropNotes() {
             crop,
             note: text.trim() || "(photo)",
             entryType,
+            plantNumber,
           }),
         });
         if (!res.ok) throw new Error(await res.text());
@@ -370,6 +210,7 @@ export default function CropNotes() {
             imageData: pendingImage,
             mimeType: "image/jpeg",
             noteId,
+            plantNumber,
           }),
         });
         if (!imgRes.ok) throw new Error(await imgRes.text());
@@ -378,7 +219,8 @@ export default function CropNotes() {
       play("save");
       setText("");
       setPendingImage(null);
-      invalidateCache(`cropNotes:${crop}`);
+      invalidateCache(`cropNotes:${crop}:p:${plantNumber}`);
+      invalidateCache(`plantMap:${crop}`);
       await loadAll();
     } catch (err: any) {
       play("error");
@@ -401,6 +243,8 @@ export default function CropNotes() {
       });
       if (!res.ok) throw new Error(await res.text());
       play("save");
+      invalidateCache(`cropNotes:${crop}:p:${plantNumber}`);
+      invalidateCache(`plantMap:${crop}`);
       await loadNotes();
     } catch (err: any) {
       play("error");
@@ -419,6 +263,8 @@ export default function CropNotes() {
     });
     play("delete");
     setNoteToDelete(null);
+    invalidateCache(`cropNotes:${crop}:p:${plantNumber}`);
+    invalidateCache(`plantMap:${crop}`);
     await loadAll();
   }
 
@@ -438,34 +284,40 @@ export default function CropNotes() {
     play("delete");
     setImageToDelete(null);
     if (lightbox?.id === id) setLightbox(null);
+    invalidateCache(`plantMap:${crop}`);
     await loadImages();
   }
 
   const noteImages = (noteId: number) =>
     images.filter((img) => img.note_id === noteId);
 
+  if (!validPlant) {
+    return (
+      <div className="page-container animate-rise">
+        <div className="glass-card max-w-lg mx-auto text-center">
+          <p className="font-display text-2xl text-gold mb-2">Invalid plant</p>
+          <p className="text-sm text-gold-muted mb-4">
+            Plant numbers start at 1.
+          </p>
+          <button type="button" className="glass-btn gold-btn" onClick={() => navigate(mapPath)}>
+            Back to plant map
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="page-container animate-rise">
       <header className="mb-8 flex items-center justify-between gap-4 flex-wrap">
-        <button
-          type="button"
-          className="glass-btn"
-          onClick={() => navigate("/dashboard")}
-        >
-          ← Back
+        <button type="button" className="glass-btn" onClick={() => navigate(mapPath)}>
+          ← Map
         </button>
         <div className="text-center flex-1">
-          <p className="eyebrow">Crop ledger</p>
+          <p className="eyebrow">{crop}</p>
           <h1 className="font-display text-3xl md:text-4xl text-gold glow-text">
-            {crop}
+            Plant {plantNumber}
           </h1>
-          {isClosed && (
-            <div className="mt-2 flex justify-center">
-              <span className="crop-closed-badge crop-closed-badge--inline">
-                Closed · was {closedPlantCount.toLocaleString()} plants
-              </span>
-            </div>
-          )}
           <div className="mt-3 flex justify-center">
             <span
               className={`todo-ripple ${openTodoCount === 0 ? "todo-ripple--quiet" : ""}`}
@@ -487,164 +339,13 @@ export default function CropNotes() {
       </header>
 
       <section className="glass-card max-w-3xl mx-auto mb-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="eyebrow">Field map</p>
-            <h2 className="font-display text-xl text-gold">Individual plants</h2>
-            <p className="text-sm text-gold-muted mt-1">
-              {isClosed ? closedPlantCount : savedPlantCount} tiles — one per
-              plant. Open a tile for that plant’s notes, todos, and photos.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="glass-btn gold-btn"
-            onClick={() => {
-              play("click");
-              navigate(`/crops/${encodeURIComponent(crop)}/plants`);
-            }}
-          >
-            Open plant map →
-          </button>
-        </div>
-      </section>
-
-      <section className="glass-card max-w-3xl mx-auto mb-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="eyebrow">Nutrition</p>
-            <h2 className="font-display text-xl text-gold">Fertilizer</h2>
-            <p className="text-sm text-gold-muted mt-1">
-              {isClosed
-                ? "Plantation is closed — fertilizer ops are paused (history still available)."
-                : "Inventory, timetable, and usage for this crop."}
-            </p>
-          </div>
-          <button
-            type="button"
-            className={`glass-btn gold-btn ${isClosed ? "opacity-60" : ""}`}
-            onClick={() => {
-              play("click");
-              navigate(`/fertilizer?crop=${encodeURIComponent(crop)}`);
-            }}
-          >
-            Open fertilizer →
-          </button>
-        </div>
-      </section>
-
-      <section
-        className={`glass-card max-w-3xl mx-auto mb-6 ${
-          isClosed ? "border border-stone-500/30" : ""
-        }`}
-      >
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="eyebrow">Inventory</p>
-            <h2 className="font-display text-xl text-gold">Plant count</h2>
-            <p className="text-sm text-gold-muted mt-1">
-              {isClosed ? (
-                <>
-                  Closed · was{" "}
-                  <span className="text-stone-200 font-semibold">
-                    {closedPlantCount.toLocaleString()}
-                  </span>{" "}
-                  plants (ops count is 0). P&amp;L uses the snapshot.
-                </>
-              ) : (
-                <>
-                  Current:{" "}
-                  <span className="text-emerald-300 font-semibold">
-                    {savedPlantCount.toLocaleString()}
-                  </span>{" "}
-                  plants — shown on the dashboard counter.
-                </>
-              )}
-            </p>
-          </div>
-          <div
-            className={`plant-count-badge plant-count-badge--lg ${
-              isClosed ? "plant-count-badge--closed" : ""
-            }`}
-            title={isClosed ? "Plants at close" : "Current plants"}
-          >
-            <span className="plant-count-badge__value">
-              {isClosed ? closedPlantCount : savedPlantCount}
-            </span>
-            <span className="plant-count-badge__label">
-              {isClosed ? "was" : "plants"}
-            </span>
-          </div>
-        </div>
-
-        {isAdmin && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {!isClosed ? (
-              <button
-                type="button"
-                className="glass-btn text-stone-300"
-                disabled={statusBusy}
-                onClick={() => setCloseConfirm(true)}
-              >
-                Close plantation
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="glass-btn text-emerald-300"
-                disabled={statusBusy}
-                onClick={() => setReopenConfirm(true)}
-              >
-                Reopen plantation
-              </button>
-            )}
-          </div>
-        )}
-
-        {!isClosed && isAdmin && (
-          <form
-            onSubmit={savePlantCount}
-            className="mt-4 flex flex-wrap items-end gap-3"
-          >
-            <label className="block flex-1 min-w-[140px]">
-              <span className="eyebrow mb-1 block">Number of plants</span>
-              <input
-                type="number"
-                min={0}
-                step={1}
-                className="glass-input"
-                value={plantCount}
-                onChange={(e) => setPlantCount(e.target.value)}
-                required
-              />
-            </label>
-            <button
-              type="submit"
-              className={`glass-btn gold-btn ${savingPlants ? "opacity-50" : ""}`}
-              disabled={savingPlants}
-            >
-              {savingPlants ? "Saving…" : "Save count"}
-            </button>
-          </form>
-        )}
-        {!isClosed && !isAdmin && (
-          <p className="mt-4 text-sm text-gold-muted">
-            Plants:{" "}
-            <span className="text-gold tabular-nums">
-              {plantCount || "—"}
-            </span>
-          </p>
-        )}
-        {plantMessage && (
-          <p className="text-emerald-300 text-sm mt-3">{plantMessage}</p>
-        )}
-      </section>
-
-      <section className="glass-card max-w-3xl mx-auto mb-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
             <p className="eyebrow">Media</p>
-            <h2 className="font-display text-xl text-gold">Crop images</h2>
+            <h2 className="font-display text-xl text-gold">Plant photos</h2>
+            <p className="text-sm text-gold-muted mt-1">
+              Field shots for this plant only — not mixed with the crop gallery.
+            </p>
           </div>
         </div>
 
@@ -670,14 +371,14 @@ export default function CropNotes() {
               {uploading ? "Uploading…" : "Insert image"}
             </p>
             <p className="text-sm text-gold-muted">
-              Tap to choose a photo from your device
+              Tap to choose a photo of this plant
             </p>
           </button>
         )}
 
         {images.length === 0 && (
           <p className="text-gold-muted text-sm text-center pb-2">
-            No images yet for this crop.
+            No photos yet for plant {plantNumber}.
           </p>
         )}
 
@@ -698,7 +399,6 @@ export default function CropNotes() {
                   alt=""
                   className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
                 />
-                <span className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition" />
               </button>
               {isAdmin && (
                 <button
@@ -717,85 +417,84 @@ export default function CropNotes() {
       </section>
 
       {isAdmin && (
-      <form
-        onSubmit={addNote}
-        className="glass-card max-w-3xl mx-auto mb-6 space-y-3"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-xl text-gold">
-            Add {entryType === "todo" ? "todo" : "note"}
-          </h2>
-          <div className="entry-type-toggle" role="tablist" aria-label="Notes or todos">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={entryType === "note"}
-              className={entryType === "note" ? "is-active" : ""}
-              onClick={() => setEntryType("note")}
-            >
-              Note
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={entryType === "todo"}
-              className={entryType === "todo" ? "is-active is-todo" : ""}
-              onClick={() => setEntryType("todo")}
-            >
-              Todo
-            </button>
-          </div>
-        </div>
-        {error && <p className="text-red-400 text-sm">{error}</p>}
-        <textarea
-          className="glass-input min-h-[120px] resize-y"
-          placeholder={
-            entryType === "todo"
-              ? "Task to do for this crop…"
-              : "Field observations, harvest notes, vendor details…"
-          }
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-        />
-
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="glass-btn gold-btn cursor-pointer inline-flex items-center gap-2">
-            Attach image
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={(e) => {
-                void onPickFile(e.target.files?.[0] || null);
-                e.target.value = "";
-              }}
-            />
-          </label>
-          {pendingImage && (
-            <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-[var(--glass-border)]">
-              <img src={pendingImage} alt="Preview" className="w-full h-full object-cover" />
+        <form
+          onSubmit={addNote}
+          className="glass-card max-w-3xl mx-auto mb-6 space-y-3"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="font-display text-xl text-gold">
+              Add {entryType === "todo" ? "todo" : "note"}
+            </h2>
+            <div className="entry-type-toggle" role="tablist" aria-label="Notes or todos">
               <button
                 type="button"
-                className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-red-300 text-xs"
-                onClick={() => setPendingImage(null)}
+                role="tab"
+                aria-selected={entryType === "note"}
+                className={entryType === "note" ? "is-active" : ""}
+                onClick={() => setEntryType("note")}
               >
-                ✕
+                Note
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={entryType === "todo"}
+                className={entryType === "todo" ? "is-active is-todo" : ""}
+                onClick={() => setEntryType("todo")}
+              >
+                Todo
               </button>
             </div>
-          )}
-          <button
-            className="glass-btn gold-btn ml-auto"
-            disabled={loading || (!text.trim() && !pendingImage)}
-          >
-            {loading
-              ? "Saving…"
-              : entryType === "todo"
-                ? "Save todo"
-                : "Save note"}
-          </button>
-        </div>
-      </form>
+          </div>
+          {error && <p className="text-red-400 text-sm">{error}</p>}
+          <textarea
+            className="glass-input min-h-[120px] resize-y"
+            placeholder={
+              entryType === "todo"
+                ? `Task for plant ${plantNumber}…`
+                : `Observation on plant ${plantNumber}…`
+            }
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="glass-btn gold-btn cursor-pointer inline-flex items-center gap-2">
+              Attach image
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => {
+                  void onPickFile(e.target.files?.[0] || null);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {pendingImage && (
+              <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-[var(--glass-border)]">
+                <img src={pendingImage} alt="Preview" className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-red-300 text-xs"
+                  onClick={() => setPendingImage(null)}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+            <button
+              className="glass-btn gold-btn ml-auto"
+              disabled={loading || (!text.trim() && !pendingImage)}
+            >
+              {loading
+                ? "Saving…"
+                : entryType === "todo"
+                  ? "Save todo"
+                  : "Save note"}
+            </button>
+          </div>
+        </form>
       )}
 
       {!isAdmin && (
@@ -823,27 +522,25 @@ export default function CropNotes() {
         </div>
       )}
 
+      {!isAdmin && error && (
+        <p className="text-red-400 text-sm text-center mb-4">{error}</p>
+      )}
+
       <div className="max-w-3xl mx-auto space-y-3">
         {filteredNotes.length === 0 && (
           <div className="glass-panel text-center text-gold-muted py-10">
-            {entryType === "todo" ? "No todos yet" : "No notes yet"}
+            {entryType === "todo"
+              ? `No todos yet for plant ${plantNumber}`
+              : `No notes yet for plant ${plantNumber}`}
           </div>
         )}
         {filteredNotes.map((n, i) => {
           const type: EntryType = n.entry_type === "todo" ? "todo" : "note";
           const done = type === "todo" && !!Number(n.completed);
-          const fertDue =
-            type === "todo" &&
-            !done &&
-            (String(n.source || "").startsWith("fert_due:") ||
-              /^(PAST DUE|FINISH REST|IN PROGRESS|ONGOING PLAN):/i.test(n.note));
-          const finishRest = fertDue && /^FINISH REST:/i.test(n.note);
           return (
             <article
               key={n.id}
-              className={`glass-card relative animate-rise ${done ? "note-todo-done" : ""} ${
-                fertDue ? "border border-amber-400/40" : ""
-              }`}
+              className={`glass-card relative animate-rise ${done ? "note-todo-done" : ""}`}
               style={{ animationDelay: `${i * 40}ms` }}
             >
               {isAdmin && (
@@ -861,36 +558,13 @@ export default function CropNotes() {
                   className={`entry-type-badge ${
                     done
                       ? "entry-type-badge--done"
-                      : fertDue
+                      : type === "todo"
                         ? "entry-type-badge--todo"
-                        : type === "todo"
-                          ? "entry-type-badge--todo"
-                          : "entry-type-badge--note"
+                        : "entry-type-badge--note"
                   }`}
                 >
-                  {done
-                    ? "Done"
-                    : finishRest
-                      ? "Finish rest - fertilizer"
-                      : fertDue
-                        ? "Past due - fertilizer"
-                        : type === "todo"
-                          ? "Todo"
-                          : "Note"}
+                  {done ? "Done" : type === "todo" ? "Todo" : "Note"}
                 </span>
-                {fertDue && (
-                  <button
-                    type="button"
-                    className="glass-btn text-xs py-1 px-2"
-                    onClick={() =>
-                      navigate(
-                        `/fertilizer?crop=${encodeURIComponent(crop)}`
-                      )
-                    }
-                  >
-                    {finishRest ? "Finish remaining vines" : "Apply week"}
-                  </button>
-                )}
                 <p className="text-sm text-gold-muted">
                   {new Date(n.created_at).toLocaleString()}
                 </p>
@@ -929,30 +603,6 @@ export default function CropNotes() {
           );
         })}
       </div>
-
-      <ConfirmModal
-        open={closeConfirm}
-        title="Close this plantation?"
-        message={`“${crop}” will be marked Closed. Plant count (${savedPlantCount}) is saved for P&L, then set to 0 for ops. Ledger totals stay. You can reopen later.`}
-        confirmLabel="Close crop"
-        danger={false}
-        onCancel={() => setCloseConfirm(false)}
-        onConfirm={() => {
-          if (!statusBusy) void runCloseCrop();
-        }}
-      />
-
-      <ConfirmModal
-        open={reopenConfirm}
-        title="Reopen this plantation?"
-        message={`Restore “${crop}” to active and set plant count back to ${closedPlantCount} (from close snapshot).`}
-        confirmLabel="Reopen"
-        danger={false}
-        onCancel={() => setReopenConfirm(false)}
-        onConfirm={() => {
-          if (!statusBusy) void runReopenCrop();
-        }}
-      />
 
       <ConfirmModal
         open={noteToDelete != null}

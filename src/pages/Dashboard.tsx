@@ -1451,9 +1451,14 @@ const ledger = splitTotals(expenses);
             Backlog
           </button>
           {isAdmin && (
-            <button className="glass-btn" onClick={() => navigate("/email-reports")}>
-              Email reports
-            </button>
+            <>
+              <button className="glass-btn" onClick={() => navigate("/export")}>
+                Export
+              </button>
+              <button className="glass-btn" onClick={() => navigate("/email-reports")}>
+                Email reports
+              </button>
+            </>
           )}
           <button className="glass-btn" onClick={() => navigate("/fertilizer")}>
             Fertilizer

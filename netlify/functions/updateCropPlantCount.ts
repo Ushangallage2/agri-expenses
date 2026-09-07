@@ -63,6 +63,7 @@ export const handler: Handler = async (event) => {
     await recordPlantCountHistory(name, count);
 
     invalidate("crops:");
+    invalidate("plantMap:");
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },

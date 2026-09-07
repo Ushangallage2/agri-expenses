@@ -17,7 +17,7 @@ type Entry = {
 
 export default function ActivityLog() {
   const navigate = useNavigate();
-  const { isObserve } = useAuth();
+  const { isObserve, isAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const userFilter = searchParams.get("user") || "all";
   const typeFilter = searchParams.get("type") || "all";
@@ -99,7 +99,23 @@ export default function ActivityLog() {
             Activity backlog
           </h1>
         </div>
-        <SoundToggle />
+        <div className="flex gap-2 items-center">
+          {isAdmin && (
+            <button
+              type="button"
+              className="glass-btn gold-btn"
+              onClick={() => {
+                const q = new URLSearchParams();
+                if (userFilter !== "all") q.set("user", userFilter);
+                if (typeFilter !== "all") q.set("type", typeFilter);
+                navigate(`/export?${q.toString()}`);
+              }}
+            >
+              Export
+            </button>
+          )}
+          <SoundToggle />
+        </div>
       </header>
 
       {isObserve && (

@@ -1,6 +1,7 @@
 import type { Handler } from "@netlify/functions";
 import { requireAdmin } from "../../src/utils/requireAuth";
 import { deleteCropImageById } from "./utils/cropImagesDb";
+import { invalidate } from "./utils/memoryCache";
 
 const baseHandler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -13,6 +14,7 @@ const baseHandler: Handler = async (event) => {
   try {
     const ok = await deleteCropImageById(Number(id));
     if (!ok) return { statusCode: 404, body: "Image not found" };
+    invalidate("plantMap:");
     return {
       statusCode: 200,
       body: JSON.stringify({ success: true }),

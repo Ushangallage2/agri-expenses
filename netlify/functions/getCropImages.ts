@@ -13,7 +13,17 @@ export const handler: Handler = async (event) => {
     const crop = event.queryStringParameters?.crop;
     if (!crop) return { statusCode: 400, body: "crop query required" };
 
-    const rows = await listCropImages(crop);
+    const plantRaw = event.queryStringParameters?.plant;
+    let plantNumber: number | null = null;
+    if (plantRaw != null && plantRaw !== "") {
+      const n = Number(plantRaw);
+      if (!Number.isInteger(n) || n < 1) {
+        return { statusCode: 400, body: "plant must be a whole number ≥ 1" };
+      }
+      plantNumber = n;
+    }
+
+    const rows = await listCropImages(crop, plantNumber);
     return { statusCode: 200, body: JSON.stringify(rows) };
   } catch (err) {
     console.error(err);

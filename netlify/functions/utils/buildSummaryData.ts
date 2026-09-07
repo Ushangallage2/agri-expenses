@@ -30,18 +30,18 @@ export type LedgerSummary = {
   periodRows: ExpenseRow[];
 };
 
-function emptyBucket(): BucketTotals {
+export function emptyBucket(): BucketTotals {
   return { income: 0, expense: 0, profit: 0, count: 0 };
 }
 
-function accumulate(bucket: BucketTotals, amount: number) {
+export function accumulate(bucket: BucketTotals, amount: number) {
   bucket.count += 1;
   if (amount > 0) bucket.income += amount;
   else bucket.expense += Math.abs(amount);
   bucket.profit = bucket.income - bucket.expense;
 }
 
-function groupBy(
+export function groupBy(
   rows: ExpenseRow[],
   keyOf: (r: ExpenseRow) => string
 ): NamedTotals[] {

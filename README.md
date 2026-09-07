@@ -1,73 +1,98 @@
-# React + TypeScript + Vite
+# Agri Ledger
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Private farm bookkeeping for crop seasons — income, expenses, fertilizer, pesticides, and per-plant notes in one place.
 
-Currently, two official plugins are available:
+Built for pepper, turmeric, and similar field work. Sign in, record money as it moves, and keep the week-by-week field plan next to the ledger.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Live site: [agriexpenses.netlify.app](https://agriexpenses.netlify.app)
 
-## React Compiler
+---
 
-The React Compiler is currently not compatible with SWC. See [this issue](https://github.com/vitejs/vite-plugin-react/issues/428) for tracking the progress.
+## Who it is for
 
-## Expanding the ESLint configuration
+- Farm operators who need a clear profit picture per crop
+- Admins who enter spending, stock, and field notes
+- Observe accounts for demos or read-only review (money figures stay blurred)
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+---
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## What you can do
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+### Ledger
+- Record income and expenses against a **user**, **reason**, **crop**, and date
+- Dashboard rings show profit for the whole ledger, each crop, and each user
+- Attach receipts, edit or reorder rows, close a plantation when the season ends
+- Spent-per-plant KPIs use the live plant count (or the close snapshot)
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### Crops
+- Notes and todos per crop (including fertilizer due reminders)
+- Crop photo gallery
+- Plant count history and close / reopen
+- Per-crop fertilizer shortcut
+
+### Individual plants
+- On a crop page, **Open plant map**
+- Cinema-style tiles — one seat per plant
+- Click a plant for its own notes, todos, and photos
+- Tiles show whether that plant has history or an open todo
+
+### Fertilizer & pesticides
+- Inventory, purchases, schedules, and apply logs
+- Week plans, partial vine applies, price snapshots
+- Pesticide mixes you can save and reuse
+
+### Reports
+- **Export statement** (admin): filter the record table by crop, reason, user, type, and date range, then download an official Agri Ledger invoice as **PDF**, **Word (.docx)**, or **CSV** — totals plus summaries by crop, user, and reason
+- **Email reports** (admin): weekly or monthly summaries in the same official style
+
+### Access
+- **Admin** — full write access
+- **Observe** — view only; amounts blurred
+
+---
+
+## How to run locally
+
+You need Node 20, a MySQL database, and a `.env` file.
+
+```bash
+cp .env.example .env
+# edit DATABASE_URL and JWT_SECRET
+
+npm install
+npm run create-admin          # first time: prints a generated admin password
+npm run dev                   # http://localhost:8888
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+`npm run dev` starts Vite behind Netlify functions. Restart it after pulling new functions (for example `getPlantMap` or `exportLedger`).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Optional:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run create-observe        # observe / observe123
+npm run seed-fertilizer
 ```
+
+---
+
+## Project shape
+
+| Path | Role |
+|------|------|
+| `src/pages/` | Screens (dashboard, crop notes, plant map, fertilizer, export) |
+| `src/components/` | Shared UI |
+| `netlify/functions/` | API + MySQL |
+| `scripts/` | Admin user, fertilizer seed |
+
+Stack: React 19, TypeScript, Vite, Tailwind, Netlify Functions, MySQL.
+
+---
+
+## Typical path
+
+1. Sign in as admin
+2. Add users, reasons, and crops
+3. Enter ledger rows on the dashboard
+4. Open a crop → set plant count → plant map for individual plants
+5. Use fertilizer for the week plan
+6. **Export** a filtered statement as PDF or Word when you need a budget record

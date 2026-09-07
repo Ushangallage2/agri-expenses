@@ -31,6 +31,7 @@ const baseHandler: Handler = async (event) => {
 
     invalidate("cropNotes:");
     invalidate("cropTodos:");
+    invalidate("plantMap:");
     return {
       statusCode: 200,
       body: JSON.stringify({ success: true, id: noteId, completed: done }),
