@@ -1107,6 +1107,10 @@
   margin-right: auto;
 }
 
+.plant-map--land {
+  max-width: 64rem;
+}
+
 .plant-map-screen {
   height: 3.1rem;
   margin: 0 10% 1.6rem;
@@ -1310,6 +1314,126 @@
   .plant-tile__num {
     font-size: 0.64rem;
   }
+}
+
+.land-stage {
+  position: relative;
+  width: 100%;
+  min-height: 280px;
+  border-radius: 1rem;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(212, 175, 55, 0.12), transparent 55%),
+    #0c1410;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.land-stage svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.land-fill {
+  fill: rgba(212, 175, 55, 0.16);
+  stroke: rgba(245, 215, 110, 0.85);
+  stroke-width: 0.7;
+  vector-effect: non-scaling-stroke;
+}
+
+.land-handle {
+  position: absolute;
+  width: 0.9rem;
+  height: 0.9rem;
+  padding: 0;
+  border-radius: 999px;
+  border: 2px solid #1c1917;
+  background: #f5d76e;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  cursor: grab;
+  touch-action: none;
+}
+
+.land-handle.is-selected {
+  box-shadow: 0 0 0 3px rgba(245, 215, 110, 0.45);
+}
+
+.land-tile {
+  position: absolute;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+  touch-action: none;
+}
+
+.land-tile:hover,
+.land-tile:focus-visible {
+  transform: translate(-50%, -58%);
+}
+
+.map-plan-image {
+  display: block;
+  width: 100%;
+  max-height: 72vh;
+  object-fit: contain;
+  border-radius: 0.85rem;
+  background: #0b120e;
+}
+
+.map-plan-empty {
+  text-align: center;
+  padding: 3.5rem 1rem;
+}
+
+.field-map-shell {
+  overflow: hidden;
+}
+
+.field-map-canvas {
+  width: 100%;
+  height: min(68vh, 640px);
+  min-height: 420px;
+  border-radius: 1rem;
+  background: #0b120e;
+  z-index: 0;
+}
+
+.plant-map-marker {
+  background: none !important;
+  border: none !important;
+}
+
+.plant-map-marker .plant-tile {
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.45);
+}
+
+.plant-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.field-search-hits {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.field-search-hits button {
+  width: 100%;
+  text-align: left;
+  padding: 0.65rem 0.8rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--glass-border);
+  background: rgba(18, 16, 12, 0.55);
+  color: var(--ink);
+  font-size: 0.85rem;
+}
+
+.field-search-hits button:hover {
+  border-color: rgba(212, 175, 55, 0.55);
+  background: rgba(212, 175, 55, 0.1);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -489,11 +489,12 @@ export default function CropNotes() {
       <section className="glass-card max-w-3xl mx-auto mb-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="eyebrow">Field map</p>
+            <p className="eyebrow">Open plant map</p>
             <h2 className="font-display text-xl text-gold">Individual plants</h2>
             <p className="text-sm text-gold-muted mt-1">
               {isClosed ? closedPlantCount : savedPlantCount} tiles — one per
-              plant. Open a tile for that plant’s notes, todos, and photos.
+              plant. Place each number where it sits, and reshape the land
+              outline.
             </p>
           </div>
           <button
@@ -505,6 +506,29 @@ export default function CropNotes() {
             }}
           >
             Open plant map →
+          </button>
+        </div>
+      </section>
+
+      <section className="glass-card max-w-3xl mx-auto mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="eyebrow">MAP</p>
+            <h2 className="font-display text-xl text-gold">Land plan</h2>
+            <p className="text-sm text-gold-muted mt-1">
+              Satellite search, or a plan image you upload. Drag plant numbers
+              on either one, then export a PDF.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="glass-btn gold-btn"
+            onClick={() => {
+              play("click");
+              navigate(`/crops/${encodeURIComponent(crop)}/map`);
+            }}
+          >
+            MAP →
           </button>
         </div>
       </section>

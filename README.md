@@ -31,10 +31,9 @@ Live site: [agriexpenses.netlify.app](https://agriexpenses.netlify.app)
 - Per-crop fertilizer shortcut
 
 ### Individual plants
-- On a crop page, **Open plant map**
-- Cinema-style tiles — one seat per plant
-- Click a plant for its own notes, todos, and photos
-- Tiles show whether that plant has history or an open todo
+- **Open plant map**: drag each plant number into place, and reshape the land outline (width, length, corners)
+- **MAP**: satellite search or an uploaded plan image, drag plant numbers on either view, export PDF
+- Notes, todos, and photos stay on the plant you open from a number tile
 
 ### Fertilizer & pesticides
 - Inventory, purchases, schedules, and apply logs

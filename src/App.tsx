@@ -5,6 +5,7 @@ import Dashboard from "./pages/Dashboard";
 import AddExpense from "./pages/AddExpense";
 import CropNotes from "./pages/CropNotes";
 import PlantMap from "./pages/PlantMap";
+import FieldMap from "./pages/FieldMap";
 import PlantDetail from "./pages/PlantDetail";
 import ActivityLog from "./pages/ActivityLog";
 import EmailReports from "./pages/EmailReports";
@@ -24,6 +25,8 @@ export default function App() {
           <Route path="/crops/:cropName/notes" element={<CropNotes />} />
           <Route path="/crops/:cropName/plants/:plantNumber" element={<PlantDetail />} />
           <Route path="/crops/:cropName/plants" element={<PlantMap />} />
+          <Route path="/crops/:cropName/field" element={<FieldMap />} />
+          <Route path="/crops/:cropName/map" element={<FieldMap />} />
           <Route path="/activity" element={<ActivityLog />} />
           <Route path="/email-reports" element={<EmailReports />} />
           <Route path="/export" element={<ExportLedger />} />
