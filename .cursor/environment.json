@@ -5,7 +5,7 @@
   "terminals": [
     {
       "name": "netlify-dev",
-      "command": "npm run dev"
+      "command": "bash .cursor/start.sh && npm run dev"
     }
   ]
 }
