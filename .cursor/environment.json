@@ -1,0 +1,11 @@
+{
+  "name": "Agri Ledger",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "netlify-dev",
+      "command": "npm run dev"
+    }
+  ]
+}
