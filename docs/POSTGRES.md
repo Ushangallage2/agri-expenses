@@ -29,8 +29,8 @@ before 21 Dec:
 
 ```bash
 # converts CREATE/INSERT to PostgreSQL (do not commit the dump files)
-python3 scripts/mysql-dump-to-postgres.py dump-defaultdb.sql > dump.pg.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f dump.pg.sql
+python3 scripts/mysql-dump-to-postgres.py dump.sql > dump.pg.sql
+psql "$PGURL" -v ON_ERROR_STOP=1 -f dump.pg.sql
 
 # sellerProduction only — adds farms + users.farm_id, keeps ledger rows
 npm run migrate-seller-production

@@ -2,11 +2,10 @@
 """Convert a mysqldump of Agri Ledger (or similar) into PostgreSQL SQL.
 
 Usage:
-  python3 scripts/mysql-dump-to-postgres.py dump-defaultdb.sql > dump.pg.sql
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f dump.pg.sql
+  python3 scripts/mysql-dump-to-postgres.py dump.sql > dump.pg.sql
+  psql "$PGURL" -v ON_ERROR_STOP=1 -f dump.pg.sql
 
-Does not print or log row payloads (receipts / password hashes). Do not commit
-the source dump or the converted SQL — they contain live credentials hashes.
+Keep dump files out of git.
 """
 from __future__ import annotations
 
