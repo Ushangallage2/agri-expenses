@@ -37,6 +37,18 @@ function toMysql(sql: string) {
   return sql.replace(/\$(\d+)/g, "?");
 }
 
+/**
+ * Prepared statements (`execute`) cannot run some DDL on hosted MySQL/MariaDB/
+ * Vitess ("This command is not supported in the prepared statement protocol").
+ * Use the text protocol when there are no placeholders.
+ */
+async function run(sql: string, params: ExecuteValues[] = []) {
+  if (params.length === 0) {
+    return pool.query<RowDataPacket[] | ResultSetHeader>(sql);
+  }
+  return pool.execute<RowDataPacket[] | ResultSetHeader>(sql, params);
+}
+
 async function query(sql: string, params: ExecuteValues[] = []) {
   const text = toMysql(sql.trim());
   // MySQL has no RETURNING — shim INSERT … RETURNING into INSERT + SELECT by id.
@@ -49,19 +61,16 @@ async function query(sql: string, params: ExecuteValues[] = []) {
     const tableMatch = insertSql.match(/INSERT\s+INTO\s+(\w+)/i);
     if (!tableMatch) throw new Error("Could not parse INSERT table name");
 
-    const [result] = await pool.execute<ResultSetHeader>(insertSql, params);
+    const [result] = (await run(insertSql, params)) as [ResultSetHeader, unknown];
     const insertId = result.insertId;
-    const [rows] = await pool.execute<RowDataPacket[]>(
+    const [rows] = (await run(
       `SELECT ${cols} FROM ${tableMatch[1]} WHERE id = ?`,
       [insertId]
-    );
+    )) as [RowDataPacket[], unknown];
     return { rows, rowCount: rows.length };
   }
 
-  const [rows] = await pool.execute<RowDataPacket[] | ResultSetHeader>(
-    text,
-    params
-  );
+  const [rows] = await run(text, params);
 
   if (Array.isArray(rows)) {
     return { rows, rowCount: rows.length };

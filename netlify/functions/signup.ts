@@ -49,7 +49,22 @@ export const handler: Handler = async (event) => {
     return response(500, "Server misconfigured (JWT)", baseHeaders);
   }
 
-  const { farmName, username, password } = JSON.parse(event.body || "{}");
+  let farmName = "";
+  let username = "";
+  let password = "";
+  try {
+    let raw = event.body || "{}";
+    if (event.isBase64Encoded && event.body) {
+      raw = Buffer.from(event.body, "base64").toString("utf8");
+    }
+    const parsed =
+      typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>);
+    farmName = String(parsed?.farmName || "").trim();
+    username = String(parsed?.username || "").trim();
+    password = String(parsed?.password || "");
+  } catch {
+    return response(400, "Invalid request body", baseHeaders);
+  }
 
   if (!username || !password) {
     return response(400, "Username and password are required", baseHeaders);
@@ -75,18 +90,23 @@ export const handler: Handler = async (event) => {
     const farmId = await createFarm(farmName || `${username}'s Farm`);
     const hash = await bcrypt.hash(password, 10);
 
-    const res = await pool.query(
+    const inserted = await pool.query(
       `INSERT INTO users (username, password, role, farm_id)
-       VALUES ($1, $2, 'admin', $3)
-       RETURNING id, username, role, farm_id`,
+       VALUES ($1, $2, 'admin', $3)`,
       [username, hash, farmId]
     );
-    const user = res.rows[0] as {
+    const userId = Number(inserted.insertId);
+    const fetched = await pool.query(
+      `SELECT id, username, role, farm_id FROM users WHERE id = $1`,
+      [userId]
+    );
+    const user = fetched.rows[0] as {
       id: number;
       username: string;
       role: string;
       farm_id: number;
     };
+    if (!user) throw new Error("Failed to load created user");
 
     const token = jwt.sign(
       {
@@ -129,7 +149,12 @@ export const handler: Handler = async (event) => {
     ) {
       return response(409, "That username is already taken", baseHeaders);
     }
-    console.error("SIGNUP ERROR:", err?.code || err?.message || err);
-    return response(500, "Server error", baseHeaders);
+    console.error("SIGNUP ERROR:", err?.code || err?.errno || err?.message || err);
+    const code = err?.code || err?.errno;
+    return response(
+      500,
+      code ? `Server error (${code})` : "Server error",
+      baseHeaders
+    );
   }
 };
