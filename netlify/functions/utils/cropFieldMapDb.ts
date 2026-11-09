@@ -32,87 +32,87 @@ export async function ensureFieldMapTables() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS crop_field_maps (
       crop_name VARCHAR(255) NOT NULL PRIMARY KEY,
-      lat DOUBLE NOT NULL,
-      lng DOUBLE NOT NULL,
-      zoom DOUBLE NOT NULL DEFAULT 17,
+      lat DOUBLE PRECISION NOT NULL,
+      lng DOUBLE PRECISION NOT NULL,
+      zoom DOUBLE PRECISION NOT NULL DEFAULT 17,
       layer VARCHAR(16) NOT NULL DEFAULT 'satellite',
       label VARCHAR(255) NULL,
-      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-        ON UPDATE CURRENT_TIMESTAMP
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS crop_plant_positions (
       crop_name VARCHAR(255) NOT NULL,
       plant_number INT NOT NULL,
-      lat DOUBLE NOT NULL,
-      lng DOUBLE NOT NULL,
-      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-        ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (crop_name, plant_number),
-      INDEX idx_plant_pos_crop (crop_name)
+      lat DOUBLE PRECISION NULL,
+      lng DOUBLE PRECISION NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (crop_name, plant_number)
     )
   `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_plant_pos_crop ON crop_plant_positions (crop_name)`
+  );
   try {
     await pool.query(
-      `ALTER TABLE crop_field_maps ADD COLUMN photo_data MEDIUMTEXT NULL`
+      `ALTER TABLE crop_field_maps ADD COLUMN photo_data TEXT NULL`
     );
   } catch (err: any) {
-    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(String(err?.message || err))) {
+    if (!/Duplicate column|ER_DUP_FIELDNAME|already exists|42701/i.test(String(err?.message || err))) {
       throw err;
     }
   }
   try {
     await pool.query(`ALTER TABLE crop_field_maps ADD COLUMN photo_w INT NULL`);
   } catch (err: any) {
-    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(String(err?.message || err))) {
+    if (!/Duplicate column|ER_DUP_FIELDNAME|already exists|42701/i.test(String(err?.message || err))) {
       throw err;
     }
   }
   try {
     await pool.query(`ALTER TABLE crop_field_maps ADD COLUMN photo_h INT NULL`);
   } catch (err: any) {
-    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(String(err?.message || err))) {
+    if (!/Duplicate column|ER_DUP_FIELDNAME|already exists|42701/i.test(String(err?.message || err))) {
       throw err;
     }
   }
   try {
     await pool.query(
-      `ALTER TABLE crop_plant_positions ADD COLUMN photo_x DOUBLE NULL`
+      `ALTER TABLE crop_plant_positions ADD COLUMN photo_x DOUBLE PRECISION NULL`
     );
   } catch (err: any) {
-    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(String(err?.message || err))) {
+    if (!/Duplicate column|ER_DUP_FIELDNAME|already exists|42701/i.test(String(err?.message || err))) {
       throw err;
     }
   }
   try {
     await pool.query(
-      `ALTER TABLE crop_plant_positions ADD COLUMN photo_y DOUBLE NULL`
+      `ALTER TABLE crop_plant_positions ADD COLUMN photo_y DOUBLE PRECISION NULL`
     );
   } catch (err: any) {
-    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(String(err?.message || err))) {
+    if (!/Duplicate column|ER_DUP_FIELDNAME|already exists|42701/i.test(String(err?.message || err))) {
       throw err;
     }
   }
   try {
     await pool.query(
-      `ALTER TABLE crop_field_maps ADD COLUMN layout_json MEDIUMTEXT NULL`
+      `ALTER TABLE crop_field_maps ADD COLUMN layout_json TEXT NULL`
     );
   } catch (err: any) {
-    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(String(err?.message || err))) {
+    if (!/Duplicate column|ER_DUP_FIELDNAME|already exists|42701/i.test(String(err?.message || err))) {
       throw err;
     }
   }
   try {
     await pool.query(
-      `ALTER TABLE crop_plant_positions MODIFY COLUMN lat DOUBLE NULL`
+      `ALTER TABLE crop_plant_positions ALTER COLUMN lat DROP NOT NULL`
     );
   } catch {
     /* already nullable or unsupported */
   }
   try {
     await pool.query(
-      `ALTER TABLE crop_plant_positions MODIFY COLUMN lng DOUBLE NULL`
+      `ALTER TABLE crop_plant_positions ALTER COLUMN lng DROP NOT NULL`
     );
   } catch {
     /* already nullable or unsupported */
@@ -169,12 +169,13 @@ export async function upsertCropMapView(
   await pool.query(
     `INSERT INTO crop_field_maps (crop_name, lat, lng, zoom, layer, label)
      VALUES ($1, $2, $3, $4, $5, $6)
-     ON DUPLICATE KEY UPDATE
-       lat = VALUES(lat),
-       lng = VALUES(lng),
-       zoom = VALUES(zoom),
-       layer = VALUES(layer),
-       label = VALUES(label)`,
+     ON CONFLICT (crop_name) DO UPDATE SET
+       lat = EXCLUDED.lat,
+       lng = EXCLUDED.lng,
+       zoom = EXCLUDED.zoom,
+       layer = EXCLUDED.layer,
+       label = EXCLUDED.label,
+       updated_at = CURRENT_TIMESTAMP`,
     [crop, view.lat, view.lng, view.zoom, view.layer, view.label]
   );
 }
@@ -289,11 +290,12 @@ export async function upsertPlantPositions(
     await pool.query(
       `INSERT INTO crop_plant_positions (crop_name, plant_number, lat, lng, photo_x, photo_y)
        VALUES ($1, $2, $3, $4, $5, $6)
-       ON DUPLICATE KEY UPDATE
-         lat = COALESCE(VALUES(lat), lat),
-         lng = COALESCE(VALUES(lng), lng),
-         photo_x = COALESCE(VALUES(photo_x), photo_x),
-         photo_y = COALESCE(VALUES(photo_y), photo_y)`,
+       ON CONFLICT (crop_name, plant_number) DO UPDATE SET
+         lat = COALESCE(EXCLUDED.lat, crop_plant_positions.lat),
+         lng = COALESCE(EXCLUDED.lng, crop_plant_positions.lng),
+         photo_x = COALESCE(EXCLUDED.photo_x, crop_plant_positions.photo_x),
+         photo_y = COALESCE(EXCLUDED.photo_y, crop_plant_positions.photo_y),
+         updated_at = CURRENT_TIMESTAMP`
       [crop, p.number, lat, lng, photoX, photoY]
     );
   }

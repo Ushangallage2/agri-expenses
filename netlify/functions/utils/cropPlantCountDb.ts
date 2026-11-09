@@ -10,7 +10,7 @@ export async function ensureCropPlantCountColumn() {
     );
   } catch (err: any) {
     const msg = String(err?.message || err);
-    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(msg)) throw err;
+    if (!/Duplicate column|ER_DUP_FIELDNAME|already exists|42701/i.test(msg)) throw err;
   }
   ensured = true;
 }

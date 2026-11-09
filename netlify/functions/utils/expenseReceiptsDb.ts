@@ -6,11 +6,11 @@ export async function ensureExpenseReceiptColumns() {
   if (ensured) return;
   try {
     await pool.query(
-      `ALTER TABLE expenses ADD COLUMN receipt_data MEDIUMTEXT NULL`
+      `ALTER TABLE expenses ADD COLUMN receipt_data TEXT NULL`
     );
   } catch (err: any) {
     const msg = String(err?.message || err);
-    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(msg)) throw err;
+    if (!/Duplicate column|ER_DUP_FIELDNAME|already exists|42701/i.test(msg)) throw err;
   }
   try {
     await pool.query(
@@ -18,7 +18,7 @@ export async function ensureExpenseReceiptColumns() {
     );
   } catch (err: any) {
     const msg = String(err?.message || err);
-    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(msg)) throw err;
+    if (!/Duplicate column|ER_DUP_FIELDNAME|already exists|42701/i.test(msg)) throw err;
   }
   ensured = true;
 }

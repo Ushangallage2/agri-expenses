@@ -1,5 +1,5 @@
 /**
- * Seed fertilizer inventory from the purchase pack into MySQL.
+ * Seed fertilizer inventory from the purchase pack into PostgreSQL.
  *
  *   node scripts/seed-fertilizer-inventory.mjs
  *   node scripts/seed-fertilizer-inventory.mjs --mode set
@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import mysql from "mysql2/promise";
+import { makePgClient } from "./pg-url.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -123,20 +123,9 @@ function loadEnvFile() {
   }
 }
 
-function parseDatabaseUrl(url) {
-  const cleaned = url
-    .replace(/[?&]ssl-mode=[^&]*/gi, "")
-    .replace(/\?$/, "")
-    .trim();
-  const u = new URL(cleaned);
-  return {
-    host: u.hostname,
-    port: Number(u.port || 3306),
-    user: decodeURIComponent(u.username),
-    password: decodeURIComponent(u.password),
-    database: u.pathname.replace(/^\//, ""),
-    ssl: { rejectUnauthorized: false },
-  };
+function toPg(sql) {
+  let i = 0;
+  return sql.replace(/\?/g, () => `$${++i}`);
 }
 
 async function migrateLegacyPepperName(conn) {
@@ -253,18 +242,28 @@ async function main() {
     process.exit(1);
   }
 
-  const conn = await mysql.createConnection(parseDatabaseUrl(databaseUrl));
+  if (/^mysql(\+[^:]+)?:\/\//i.test(databaseUrl)) {
+    console.error("DATABASE_URL is mysql://… — this app now uses postgres://");
+    process.exit(1);
+  }
+
+  const conn = makePgClient(databaseUrl);
+  await conn.connect();
+  const execute = async (sql, params) => {
+    const res = await conn.query(toPg(sql), params);
+    return [res.rows, { affectedRows: res.rowCount ?? 0 }];
+  };
+  conn.execute = execute;
   try {
     await conn.query(`
       CREATE TABLE IF NOT EXISTS fertilizers (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL UNIQUE,
         unit VARCHAR(32) NOT NULL DEFAULT 'kg',
         stock_qty DECIMAL(14, 3) NOT NULL DEFAULT 0,
         unit_price DECIMAL(14, 2) NOT NULL DEFAULT 0,
         notes TEXT NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY uq_fertilizers_name (name)
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
 

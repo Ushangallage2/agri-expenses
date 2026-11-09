@@ -97,7 +97,7 @@ const baseHandler: Handler = async (event, context: HandlerContext) => {
       };
     }
 
-    // mysql shim maps each $n → ?; pass amount twice (cannot reuse $1)
+    // Postgres cannot reuse $1 for the stock check; pass the amount twice.
     const dec = await pool.query(
       `UPDATE fertilizers
        SET stock_qty = stock_qty - $1

@@ -151,43 +151,46 @@ export async function ensureFertilizerTables() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS fertilizers (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL UNIQUE,
       unit VARCHAR(32) NOT NULL DEFAULT 'kg',
       stock_qty DECIMAL(14, 3) NOT NULL DEFAULT 0,
       unit_price DECIMAL(14, 2) NOT NULL DEFAULT 0,
       notes TEXT NULL,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY uq_fertilizers_name (name)
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS fertilizer_price_history (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       fertilizer_id INT NOT NULL,
       price DECIMAL(14, 2) NOT NULL,
-      recorded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_fph_fertilizer (fertilizer_id)
+      recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_fph_fertilizer ON fertilizer_price_history (fertilizer_id)`
+  );
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS fertilizer_schedules (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       crop_name VARCHAR(255) NULL,
       name VARCHAR(255) NOT NULL,
       description TEXT NULL,
-      is_working TINYINT(1) NOT NULL DEFAULT 0,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_fs_crop (crop_name)
+      is_working SMALLINT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_fs_crop ON fertilizer_schedules (crop_name)`
+  );
 
   try {
     await pool.query(
       `ALTER TABLE fertilizer_schedules
-       ADD COLUMN is_working TINYINT(1) NOT NULL DEFAULT 0`
+       ADD COLUMN is_working SMALLINT NOT NULL DEFAULT 0`
     );
   } catch {
     /* column already exists */
@@ -195,7 +198,7 @@ export async function ensureFertilizerTables() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS fertilizer_schedule_steps (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       schedule_id INT NOT NULL,
       step_order INT NOT NULL DEFAULT 1,
       week_number INT NULL,
@@ -204,28 +207,36 @@ export async function ensureFertilizerTables() {
       suggested_fertilizer_id INT NULL,
       suggested_amount DECIMAL(14, 3) NULL,
       unit VARCHAR(32) NULL,
-      interval_days INT NULL,
-      INDEX idx_fss_schedule (schedule_id)
+      interval_days INT NULL
     )
   `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_fss_schedule ON fertilizer_schedule_steps (schedule_id)`
+  );
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS fertilizer_applications (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       crop_name VARCHAR(255) NOT NULL,
       fertilizer_id INT NOT NULL,
       amount DECIMAL(14, 3) NOT NULL,
       unit VARCHAR(32) NOT NULL,
-      applied_at DATETIME NOT NULL,
+      applied_at TIMESTAMP NOT NULL,
       notes TEXT NULL,
       schedule_step_id INT NULL,
       created_by VARCHAR(255) NULL,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_fa_crop (crop_name),
-      INDEX idx_fa_fertilizer (fertilizer_id),
-      INDEX idx_fa_applied (applied_at)
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_fa_crop ON fertilizer_applications (crop_name)`
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_fa_fertilizer ON fertilizer_applications (fertilizer_id)`
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_fa_applied ON fertilizer_applications (applied_at)`
+  );
 
   // Immutable price snapshot at apply time (same idea as pesticide_use_lines)
   for (const ddl of [
@@ -245,14 +256,13 @@ export async function ensureFertilizerTables() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS purchase_pack_items (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       sort_order INT NOT NULL DEFAULT 0,
-      name VARCHAR(255) NOT NULL,
+      name VARCHAR(255) NOT NULL UNIQUE,
       unit VARCHAR(32) NOT NULL DEFAULT 'kg',
       stock_qty DECIMAL(14, 3) NOT NULL DEFAULT 0,
       unit_price DECIMAL(14, 2) NOT NULL DEFAULT 0,
-      notes TEXT NULL,
-      UNIQUE KEY uq_purchase_pack_name (name)
+      notes TEXT NULL
     )
   `);
 
