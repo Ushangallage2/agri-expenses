@@ -12,33 +12,32 @@ MySQL URLs are rejected at startup and login.
 1. Create an **Aiven for PostgreSQL** free-tier service (same project is fine).
 2. Copy the service URI from the Aiven console. Add `?sslmode=require` if it is
    not already present.
-3. In Netlify site env vars, set `DATABASE_URL` to that URI (replace the old
+3. Convert your MySQL dump and load it (see below). Existing logins stay the
+   same; password hashes are copied as-is.
+4. In Netlify site env vars, set `DATABASE_URL` to that URI (replace the old
    MySQL URL). Keep `JWT_SECRET`.
-4. Redeploy the `sellerProduction` (or `main`) branch.
+5. Redeploy the `main` branch.
 
-On first request the functions create tables (`CREATE TABLE IF NOT EXISTS` /
-`ALTER TABLE … ADD COLUMN`). Then:
+On first request the functions also create any missing tables
+(`CREATE TABLE IF NOT EXISTS` / `ALTER TABLE … ADD COLUMN`).
 
-```bash
-# against the new Postgres URL in .env
-npm run create-admin -- --username admin --password 'your-admin-password'
-```
+## Import a mysqldump
 
-Existing **MySQL data is not copied automatically**. To move a `mysqldump`
-before 21 Dec:
+Do not load the Aiven MySQL `.sql` into Postgres. Convert it first:
 
 ```bash
-# converts CREATE/INSERT to PostgreSQL (do not commit the dump files)
 python3 scripts/mysql-dump-to-postgres.py dump.sql > dump.pg.sql
 psql "$PGURL" -v ON_ERROR_STOP=1 -f dump.pg.sql
-
-# sellerProduction only — adds farms + users.farm_id, keeps ledger rows
-npm run migrate-seller-production
 ```
 
-`pgloader` is an alternative if you still have a live MySQL URI. After cutover,
-point Netlify at Postgres only. Do not commit dump files — they contain password
-hashes, emails, and receipts.
+In DBeaver: **SQL Editor → Execute SQL Script** (Alt+X) on `dump.pg.sql`, not
+Ctrl+Enter. `table "…" does not exist, skipping` is only `DROP TABLE IF EXISTS`
+on an empty database.
+
+The converted dump is one `BEGIN` … `COMMIT` transaction. It succeeded if
+`psql` exits 0, the log contains `COMMIT`, and there is no `ERROR`.
+
+Do not commit dump files — they contain password hashes, emails, and receipts.
 
 ## Local
 

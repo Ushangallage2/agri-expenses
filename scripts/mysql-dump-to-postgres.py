@@ -216,6 +216,7 @@ def convert_create(table: str, body: str) -> tuple[str, list[str], list[str]]:
 def convert_dump(text: str) -> Iterable[str]:
     yield "-- Converted from mysqldump for PostgreSQL"
     yield "SET client_encoding = 'UTF8';"
+    yield "SET client_min_messages = warning;"
     yield "BEGIN;"
     yield ""
 
