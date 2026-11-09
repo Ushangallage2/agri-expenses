@@ -55,6 +55,19 @@ The converted dump is one `BEGIN` … `COMMIT` transaction. It succeeded if
 
 Do not commit dump files — they contain password hashes, emails, and receipts.
 
+## Email reports (Mailtrap)
+
+Saving recipients does not need Mailtrap. Sending does. In Netlify site env vars
+(for the **agri-expenses** site), set:
+
+- `MAILTRAP_API_TOKEN` — Sending API token from Mailtrap
+- `MAIL_FROM_EMAIL` — a verified sender in that Mailtrap account
+- `MAIL_FROM_NAME` — optional, defaults to Agri Ledger
+- `APP_URL` — optional, `https://agri-expenses.netlify.app`
+
+Then **Trigger deploy**. `/.netlify/functions/health` should show
+`mailtrapConfigured` and `mailFromConfigured` true.
+
 ## Local
 
 ```bash

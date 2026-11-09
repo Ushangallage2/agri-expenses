@@ -31,6 +31,10 @@ export const handler: Handler = async (event) => {
     };
   } catch (err: any) {
     console.error("saveSummarySettings:", err?.message || err);
-    return { statusCode: 500, body: "Server error" };
+    return {
+      statusCode: 500,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ error: err?.message || "Server error" }),
+    };
   }
 };

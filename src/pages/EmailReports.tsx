@@ -73,7 +73,16 @@ export default function EmailReports() {
       navigate("/login");
       throw new Error("Unauthorized");
     }
-    if (!res.ok) throw new Error("Save failed");
+    if (!res.ok) {
+      let detail = "Save failed";
+      try {
+        const body = await res.json();
+        if (body?.error) detail = String(body.error);
+      } catch {
+        /* keep default */
+      }
+      throw new Error(detail);
+    }
     const data = (await res.json()) as Config;
     setEmailsText(data.emails.map((e) => e.email).join("\n"));
     setLastSentAt(data.lastSentAt);
