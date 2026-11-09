@@ -64,8 +64,9 @@ export const handler: Handler = async () => {
       hint =
         "Set DATABASE_URL to a postgres://… connection string (Aiven PostgreSQL).";
     } else if (!dbConnected) {
-      hint =
-        "Netlify cannot reach Postgres. Check dbError, Aiven allowed IPs (0.0.0.0/0), public access, and that DATABASE_URL is the PostgreSQL Service URI. Then trigger a new deploy.";
+      hint = /53300|SUPERUSER|connection slots/i.test(dbError || "")
+        ? "Postgres is out of connections (Aiven free tier is small). Restart the Aiven PostgreSQL service to drop stale Netlify/DBeaver sessions, then retry."
+        : "Netlify cannot reach Postgres. Check dbError, Aiven allowed IPs (0.0.0.0/0), public access, and that DATABASE_URL is the PostgreSQL Service URI. Then trigger a new deploy.";
     } else {
       hint = "Set JWT_SECRET in Netlify site environment variables.";
     }

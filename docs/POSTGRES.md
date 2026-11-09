@@ -36,6 +36,10 @@ Aiven’s CA file.
   `?sslmode=require`. Special characters in the password must be URL-encoded.
 - Open `/.netlify/functions/health` — `dbConnected` must be `true`. If it is
   `false`, `dbError` is the Postgres/Aiven reason (no password is shown).
+- If `dbError` mentions **connection slots** / **SUPERUSER**, the free-tier
+  connection limit is full (often ~20, including DBeaver and leftover Netlify
+  pools). Restart the Aiven PostgreSQL service once to drop stale sessions.
+  The app now uses one connection per function isolate.
 
 ## Import a mysqldump
 
