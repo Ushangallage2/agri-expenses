@@ -32,6 +32,7 @@ const pool = new Pool({
   connectionString,
   ssl: sslForDatabaseUrl(connectionString),
   max: 10,
+  connectionTimeoutMillis: 5000,
 });
 
 /** Legacy queries used `?`; most functions already use `$1`. Support both. */

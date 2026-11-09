@@ -16,10 +16,23 @@ MySQL URLs are rejected at startup and login.
    same; password hashes are copied as-is.
 4. In Netlify site env vars, set `DATABASE_URL` to that URI (replace the old
    MySQL URL). Keep `JWT_SECRET`.
-5. Redeploy the `main` branch.
+5. Redeploy the `main` branch (Deploys → Trigger deploy). Changing env vars
+   does not take effect until a new deploy.
 
 On first request the functions also create any missing tables
 (`CREATE TABLE IF NOT EXISTS` / `ALTER TABLE … ADD COLUMN`).
+
+If `/.netlify/functions/health` shows `"database":"postgres"` but login or
+`warmApis` still 500:
+
+- Aiven → your **PostgreSQL** service → **Settings → Allowed IP addresses** →
+  add `0.0.0.0/0` (Netlify functions have no static IPs).
+- Confirm **public access** is on, and the service is running (not the old
+  MySQL instance).
+- `DATABASE_URL` must be that Postgres **Service URI**, with
+  `?sslmode=require`. Special characters in the password must be URL-encoded.
+- Open `/.netlify/functions/health` — `dbConnected` must be `true`. If it is
+  `false`, `dbError` is the Postgres/Aiven reason (no password is shown).
 
 ## Import a mysqldump
 
