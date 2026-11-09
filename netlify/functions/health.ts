@@ -1,14 +1,6 @@
 import type { Handler } from "@netlify/functions";
 import pg from "pg";
-
-function sslForDatabaseUrl(url: string): boolean | { rejectUnauthorized: boolean } {
-  const raw = url.toLowerCase();
-  if (/sslmode=disable/.test(raw)) return false;
-  const local = /localhost|127\.0\.0\.1/.test(raw);
-  const requireSsl = /sslmode=require|sslmode=verify/.test(raw);
-  if (local && !requireSsl) return false;
-  return { rejectUnauthorized: false };
-}
+import { normalizeDatabaseUrl, sslForDatabaseUrl } from "./utils/pgConnect";
 
 function sanitizeDbError(err: unknown): string {
   const anyErr = err as { code?: string; message?: string };
@@ -21,7 +13,7 @@ function sanitizeDbError(err: unknown): string {
 
 async function pingPostgres(url: string): Promise<{ connected: boolean; error?: string }> {
   const client = new pg.Client({
-    connectionString: url,
+    connectionString: normalizeDatabaseUrl(url),
     ssl: sslForDatabaseUrl(url),
     connectionTimeoutMillis: 5000,
   });
@@ -73,7 +65,7 @@ export const handler: Handler = async () => {
         "Set DATABASE_URL to a postgres://… connection string (Aiven PostgreSQL).";
     } else if (!dbConnected) {
       hint =
-        "Netlify cannot reach Postgres. In Aiven allow 0.0.0.0/0 (Netlify has no static IPs), turn on public access, paste the PostgreSQL service URI with ?sslmode=require, then trigger a new deploy.";
+        "Netlify cannot reach Postgres. Check dbError, Aiven allowed IPs (0.0.0.0/0), public access, and that DATABASE_URL is the PostgreSQL Service URI. Then trigger a new deploy.";
     } else {
       hint = "Set JWT_SECRET in Netlify site environment variables.";
     }

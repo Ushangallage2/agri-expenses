@@ -1,17 +1,7 @@
 import pg from "pg";
+import { normalizeDatabaseUrl, sslForDatabaseUrl } from "./utils/pgConnect";
 
 const { Pool } = pg;
-
-function sslForDatabaseUrl(url: string): boolean | { rejectUnauthorized: boolean } {
-  const raw = url.toLowerCase();
-  if (/sslmode=disable/.test(raw)) return false;
-  const local = /localhost|127\.0\.0\.1/.test(raw);
-  const requireSsl = /sslmode=require|sslmode=verify/.test(raw);
-  if (local && !requireSsl) return false;
-  // Aiven and most hosted Postgres require TLS. Their CA is optional;
-  // rejectUnauthorized:false matches the previous MySQL client setting.
-  return { rejectUnauthorized: false };
-}
 
 function parseConnectionString() {
   const raw = (process.env.DATABASE_URL || "").trim();
@@ -23,14 +13,14 @@ function parseConnectionString() {
       "DATABASE_URL is mysql://… but this app now uses PostgreSQL (postgres://…)"
     );
   }
-  return raw;
+  return normalizeDatabaseUrl(raw);
 }
 
 const connectionString = parseConnectionString();
 
 const pool = new Pool({
   connectionString,
-  ssl: sslForDatabaseUrl(connectionString),
+  ssl: sslForDatabaseUrl(process.env.DATABASE_URL || connectionString),
   max: 10,
   connectionTimeoutMillis: 5000,
 });

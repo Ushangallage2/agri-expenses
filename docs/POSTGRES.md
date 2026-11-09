@@ -23,7 +23,10 @@ On first request the functions also create any missing tables
 (`CREATE TABLE IF NOT EXISTS` / `ALTER TABLE … ADD COLUMN`).
 
 If `/.netlify/functions/health` shows `"database":"postgres"` but login or
-`warmApis` still 500:
+`warmApis` still 500, that JSON only checked the URL prefix. DBeaver can
+work while Netlify fails because `pg` treats `sslmode=require` as certificate
+verification; the app now strips that query param and uses TLS without
+Aiven’s CA file.
 
 - Aiven → your **PostgreSQL** service → **Settings → Allowed IP addresses** →
   add `0.0.0.0/0` (Netlify functions have no static IPs).
