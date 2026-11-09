@@ -53,6 +53,7 @@ export function requireAuth(handler: Handler, opts: AuthOptions = {}): Handler {
             id: Number(row.id),
             username: row.username,
             role: normalizeRole(row.role),
+            farmId: user.farmId,
           };
         }
       } catch {

@@ -98,6 +98,13 @@ export default function Login() {
         >
           {loading ? "Signing in…" : "Enter ledger"}
         </button>
+
+        <p className="text-center text-gold-muted text-sm mt-6">
+          New here?{" "}
+          <Link to="/signup" className="text-gold hover:underline">
+            Create a farm account
+          </Link>
+        </p>
       </form>
     </div>
   );

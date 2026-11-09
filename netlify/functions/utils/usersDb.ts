@@ -36,6 +36,8 @@ export type AuthUser = {
   id: number;
   username: string;
   role: UserRole;
+  /** Tenant id. Present once the JWT carries it; defaults to the legacy farm. */
+  farmId?: number;
 };
 
 export function authUserFromJwt(decoded: unknown): AuthUser | null {
@@ -44,5 +46,11 @@ export function authUserFromJwt(decoded: unknown): AuthUser | null {
   const id = Number(d.id);
   const username = typeof d.username === "string" ? d.username : "";
   if (!Number.isFinite(id) || !username) return null;
-  return { id, username, role: normalizeRole(d.role) };
+  const farmId = Number(d.farmId);
+  return {
+    id,
+    username,
+    role: normalizeRole(d.role),
+    farmId: Number.isFinite(farmId) && farmId > 0 ? farmId : undefined,
+  };
 }

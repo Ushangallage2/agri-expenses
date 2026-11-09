@@ -3,6 +3,7 @@ import pool from "./db";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { ensureUsersRoleColumn } from "./utils/usersDb";
+import { ensureFarmsSchema } from "./utils/farmsDb";
 import { normalizeRole } from "../../src/utils/roles";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
@@ -61,9 +62,10 @@ export const handler: Handler = async (event) => {
     }
 
     await ensureUsersRoleColumn();
+    await ensureFarmsSchema();
 
     const res = await pool.query(
-      "SELECT id, username, password, role FROM users WHERE username = $1",
+      "SELECT id, username, password, role, farm_id FROM users WHERE username = $1",
       [username]
     );
 
@@ -81,7 +83,12 @@ export const handler: Handler = async (event) => {
     const role = normalizeRole(user.role);
 
     const token = jwt.sign(
-      { id: user.id, username: user.username, role },
+      {
+        id: user.id,
+        username: user.username,
+        role,
+        farmId: Number(user.farm_id ?? 1),
+      },
       JWT_SECRET,
       { expiresIn: "120m" }
     );

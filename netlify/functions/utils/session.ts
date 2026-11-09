@@ -53,6 +53,7 @@ export async function resolveAuthUser(
       id: Number(row.id),
       username: row.username,
       role: normalizeRole(row.role),
+      farmId: fromJwt.farmId,
     };
   } catch {
     return fromJwt;
