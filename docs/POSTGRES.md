@@ -24,17 +24,21 @@ On first request the functions create tables (`CREATE TABLE IF NOT EXISTS` /
 npm run create-admin -- --username admin --password 'your-admin-password'
 ```
 
-Existing **MySQL data is not copied automatically**. To move it before 21 Dec:
+Existing **MySQL data is not copied automatically**. To move a `mysqldump`
+before 21 Dec:
 
 ```bash
-# example using pgloader (install separately)
-# Point both URIs at your real hosts; do not commit credentials.
-pgloader mysql://USER@MYSQL_HOST:3306/DB \
-        postgres://USER@PG_HOST:PORT/defaultdb?sslmode=require
+# converts CREATE/INSERT to PostgreSQL (do not commit the dump files)
+python3 scripts/mysql-dump-to-postgres.py dump-defaultdb.sql > dump.pg.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f dump.pg.sql
+
+# sellerProduction only — adds farms + users.farm_id, keeps ledger rows
+npm run migrate-seller-production
 ```
 
-Or dump the old MySQL service and load a converted dump. After cutover, point
-Netlify at Postgres only.
+`pgloader` is an alternative if you still have a live MySQL URI. After cutover,
+point Netlify at Postgres only. Do not commit dump files — they contain password
+hashes, emails, and receipts.
 
 ## Local
 
