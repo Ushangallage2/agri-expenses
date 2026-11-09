@@ -9,7 +9,7 @@ export async function ensureCropFertilizerNotesTable() {
       crop_name VARCHAR(255) NOT NULL,
       fertilizer_name VARCHAR(255) NOT NULL,
       note TEXT NULL,
-      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (crop_name, fertilizer_name)
     )
   `);
@@ -65,7 +65,7 @@ export async function upsertCropFertilizerNote(
   await pool.query(
     `INSERT INTO crop_fertilizer_notes (crop_name, fertilizer_name, note)
      VALUES ($1, $2, $3)
-     ON DUPLICATE KEY UPDATE note = VALUES(note)`,
+     ON CONFLICT (crop_name, fertilizer_name) DO UPDATE SET note = EXCLUDED.note, updated_at = CURRENT_TIMESTAMP`,
     [crop, fert, text]
   );
 

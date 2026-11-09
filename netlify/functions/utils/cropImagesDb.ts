@@ -5,22 +5,24 @@ let plantColEnsured = false;
 export async function ensureCropImagesTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS crop_images (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       crop_name VARCHAR(255) NOT NULL,
       note_id INT NULL,
-      image_data MEDIUMTEXT NOT NULL,
+      image_data TEXT NOT NULL,
       mime_type VARCHAR(64) NOT NULL DEFAULT 'image/jpeg',
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_crop_images_crop (crop_name)
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_crop_images_crop ON crop_images (crop_name)`
+  );
 
   if (plantColEnsured) return;
   try {
     await pool.query(`ALTER TABLE crop_images ADD COLUMN plant_number INT NULL`);
   } catch (err: any) {
     const msg = String(err?.message || err);
-    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(msg)) throw err;
+    if (!/Duplicate column|ER_DUP_FIELDNAME|already exists|42701/i.test(msg)) throw err;
   }
   try {
     await pool.query(

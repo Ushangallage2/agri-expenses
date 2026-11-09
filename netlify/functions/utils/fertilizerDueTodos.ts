@@ -246,9 +246,10 @@ export async function syncFertilizerDueTodos(): Promise<void> {
   try {
     await pool.query(
       `UPDATE crop_notes cn
-       INNER JOIN crops c ON c.name = cn.crop_name
-       SET cn.completed = 1
-       WHERE cn.entry_type = 'todo'
+          SET completed = 1
+        FROM crops c
+       WHERE c.name = cn.crop_name
+         AND cn.entry_type = 'todo'
          AND cn.completed = 0
          AND cn.source LIKE 'fert_due:%'
          AND (c.status = 'closed' OR c.plant_count <= 1)`
