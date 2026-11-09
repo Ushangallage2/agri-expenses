@@ -5,10 +5,18 @@ type SendArgs = {
   text?: string;
 };
 
+function cleanEnv(value: string) {
+  return value.trim().replace(/^['"]+|['"]+$/g, "").trim();
+}
+
+function cleanEmail(value: string) {
+  return cleanEnv(value).replace(/^<|>$/g, "").trim();
+}
+
 export async function sendMailtrapEmail(args: SendArgs) {
-  const token = (process.env.MAILTRAP_API_TOKEN || "").trim();
-  const fromEmail = (process.env.MAIL_FROM_EMAIL || "").trim();
-  const fromName = (process.env.MAIL_FROM_NAME || "Agri Ledger").trim();
+  const token = cleanEnv(process.env.MAILTRAP_API_TOKEN || "");
+  const fromEmail = cleanEmail(process.env.MAIL_FROM_EMAIL || "");
+  const fromName = cleanEnv(process.env.MAIL_FROM_NAME || "") || "Agri Ledger";
 
   if (!token) throw new Error("MAILTRAP_API_TOKEN is not set");
   if (!fromEmail) throw new Error("MAIL_FROM_EMAIL is not set");
@@ -22,7 +30,7 @@ export async function sendMailtrapEmail(args: SendArgs) {
     },
     body: JSON.stringify({
       from: { email: fromEmail, name: fromName },
-      to: args.to.map((email) => ({ email })),
+      to: args.to.map((email) => ({ email: cleanEmail(email) })),
       subject: args.subject,
       html: args.html,
       text: args.text || stripTags(args.html),
@@ -32,6 +40,12 @@ export async function sendMailtrapEmail(args: SendArgs) {
 
   const body = await res.text();
   if (!res.ok) {
+    const invalidFrom = /from['"]?\s*address is invalid/i.test(body);
+    if (invalidFrom) {
+      throw new Error(
+        "Mailtrap rejected MAIL_FROM_EMAIL. Use an address on a domain you verified under Mailtrap → Sending → Domains (not Gmail). Then trigger a new Netlify deploy."
+      );
+    }
     throw new Error(`Mailtrap ${res.status}: ${body.slice(0, 300)}`);
   }
   return body ? JSON.parse(body) : { success: true };

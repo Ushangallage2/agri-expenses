@@ -64,8 +64,9 @@ Do not commit dump files — they contain password hashes, emails, and receipts.
 Saving recipients does not need Mailtrap. Sending does. In Netlify site env vars
 (for the **agri-expenses** site), set:
 
-- `MAILTRAP_API_TOKEN` — Sending API token from Mailtrap
-- `MAIL_FROM_EMAIL` — a verified sender in that Mailtrap account
+- `MAILTRAP_API_TOKEN` — **Sending** API token (not the Email Testing sandbox token)
+- `MAIL_FROM_EMAIL` — an address on a domain verified in Mailtrap → Sending →
+  Domains (Gmail/Outlook personal addresses are rejected as `'from' address is invalid`)
 - `MAIL_FROM_NAME` — optional, defaults to Agri Ledger
 - `APP_URL` — optional, `https://agri-expenses.netlify.app`
 

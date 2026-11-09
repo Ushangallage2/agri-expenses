@@ -244,8 +244,8 @@ export default function EmailReports() {
               onChange={(e) => setEmailsText(e.target.value)}
             />
             <p className="text-xs text-gold-muted mt-2 mb-4">
-              One address per line (commas also fine). From address uses your
-              Mailtrap domain (e.g. info@uni-soft.uk).
+              One address per line (commas also fine). MAIL_FROM_EMAIL must be
+              on a domain verified in Mailtrap Sending (not a Gmail address).
             </p>
             <div className="flex flex-col sm:flex-row gap-2">
               <button
