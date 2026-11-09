@@ -92,14 +92,11 @@ export const handler: Handler = async (event) => {
 
     const inserted = await pool.query(
       `INSERT INTO users (username, password, role, farm_id)
-       VALUES ($1, $2, 'admin', $3)`,
+       VALUES ($1, $2, 'admin', $3)
+       RETURNING id, username, role, farm_id`,
       [username, hash, farmId]
     );
-    const userId = Number(inserted.insertId);
-    const fetched = await pool.query(
-      `SELECT id, username, role, farm_id FROM users WHERE id = $1`,
-      [userId]
-    );
+    const fetched = { rows: inserted.rows };
     const user = fetched.rows[0] as {
       id: number;
       username: string;

@@ -291,48 +291,47 @@ export function ensureKnowledgeBaseSchema(): Promise<void> {
     schemaReady = (async () => {
       await pool.query(`
         CREATE TABLE IF NOT EXISTS kb_fertilizers (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          name VARCHAR(255) NOT NULL,
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(255) NOT NULL UNIQUE,
           category VARCHAR(128) NOT NULL DEFAULT '',
           composition VARCHAR(255) NOT NULL DEFAULT '',
           what_it_does TEXT NULL,
           how_to_use TEXT NULL,
-          default_unit VARCHAR(32) NOT NULL DEFAULT 'kg',
-          UNIQUE KEY uq_kb_fertilizers_name (name)
+          default_unit VARCHAR(32) NOT NULL DEFAULT 'kg'
         )
       `);
       await pool.query(`
         CREATE TABLE IF NOT EXISTS kb_pesticides (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          name VARCHAR(255) NOT NULL,
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(255) NOT NULL UNIQUE,
           target VARCHAR(255) NOT NULL DEFAULT '',
           what_it_does TEXT NULL,
           advice TEXT NULL,
-          cycle_notes TEXT NULL,
-          UNIQUE KEY uq_kb_pesticides_name (name)
+          cycle_notes TEXT NULL
         )
       `);
       await pool.query(`
         CREATE TABLE IF NOT EXISTS kb_schedules (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          source_key VARCHAR(64) NOT NULL,
+          id SERIAL PRIMARY KEY,
+          source_key VARCHAR(64) NOT NULL UNIQUE,
           crop_type VARCHAR(128) NOT NULL DEFAULT '',
           name VARCHAR(255) NOT NULL,
-          summary TEXT NULL,
-          UNIQUE KEY uq_kb_schedules_source (source_key)
+          summary TEXT NULL
         )
       `);
       await pool.query(`
         CREATE TABLE IF NOT EXISTS kb_schedule_steps (
-          id INT AUTO_INCREMENT PRIMARY KEY,
+          id SERIAL PRIMARY KEY,
           schedule_id INT NOT NULL,
           step_order INT NOT NULL DEFAULT 0,
           title VARCHAR(255) NOT NULL,
           summary TEXT NULL,
-          details TEXT NULL,
-          INDEX idx_kb_steps_schedule (schedule_id)
+          details TEXT NULL
         )
       `);
+      await pool.query(
+        `CREATE INDEX IF NOT EXISTS idx_kb_steps_schedule ON kb_schedule_steps (schedule_id)`
+      );
 
       await seedKnowledgeBase();
     })().catch((err) => {
@@ -349,13 +348,13 @@ async function seedKnowledgeBase(): Promise<void> {
     await pool.query(
       `INSERT INTO kb_fertilizers
          (name, category, composition, what_it_does, how_to_use, default_unit)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         category = VALUES(category),
-         composition = VALUES(composition),
-         what_it_does = VALUES(what_it_does),
-         how_to_use = VALUES(how_to_use),
-         default_unit = VALUES(default_unit)`,
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (name) DO UPDATE SET
+         category = EXCLUDED.category,
+         composition = EXCLUDED.composition,
+         what_it_does = EXCLUDED.what_it_does,
+         how_to_use = EXCLUDED.how_to_use,
+         default_unit = EXCLUDED.default_unit`,
       [f.name, f.category, f.composition, f.what_it_does, f.how_to_use, f.default_unit]
     );
   }
@@ -364,12 +363,12 @@ async function seedKnowledgeBase(): Promise<void> {
     await pool.query(
       `INSERT INTO kb_pesticides
          (name, target, what_it_does, advice, cycle_notes)
-       VALUES (?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         target = VALUES(target),
-         what_it_does = VALUES(what_it_does),
-         advice = VALUES(advice),
-         cycle_notes = VALUES(cycle_notes)`,
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (name) DO UPDATE SET
+         target = EXCLUDED.target,
+         what_it_does = EXCLUDED.what_it_does,
+         advice = EXCLUDED.advice,
+         cycle_notes = EXCLUDED.cycle_notes`,
       [p.name, p.target, p.what_it_does, p.advice, p.cycle_notes]
     );
   }

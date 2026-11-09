@@ -117,5 +117,5 @@ the reliable path when the function runtime cannot (or should not) ALTER tables.
   now embeds `farmId`.
 - `getKnowledgeBase` returns the seeded fertilizers, pesticides and cycles and is
   identical regardless of which farm is signed in.
-- The KB seed is idempotent (`ON DUPLICATE KEY UPDATE` / rebuild-steps), so cold
+- The KB seed is idempotent (`ON CONFLICT DO UPDATE` / rebuild-steps), so cold
   starts converge without duplicating content.

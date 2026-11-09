@@ -1,85 +1,54 @@
-import mysql from "mysql2/promise";
-import type {
-  ExecuteValues,
-  ResultSetHeader,
-  RowDataPacket,
-} from "mysql2/promise";
+import pg from "pg";
 
-function parseDatabaseUrl(url: string) {
-  const cleaned = url
-    .replace(/[?&]ssl-mode=[^&]*/gi, "")
-    .replace(/\?$/, "")
-    .trim();
-  const u = new URL(cleaned);
+const { Pool } = pg;
 
+function sslForDatabaseUrl(url: string): boolean | { rejectUnauthorized: boolean } {
+  const raw = url.toLowerCase();
+  if (/sslmode=disable/.test(raw)) return false;
+  const local = /localhost|127\.0\.0\.1/.test(raw);
+  const requireSsl = /sslmode=require|sslmode=verify/.test(raw);
+  if (local && !requireSsl) return false;
+  // Aiven and most hosted Postgres require TLS. Their CA is optional;
+  // rejectUnauthorized:false matches the previous MySQL client setting.
+  return { rejectUnauthorized: false };
+}
+
+function parseConnectionString() {
+  const raw = (process.env.DATABASE_URL || "").trim();
+  if (!raw) {
+    throw new Error("DATABASE_URL is not set");
+  }
+  if (/^mysql(\+[^:]+)?:\/\//i.test(raw)) {
+    throw new Error(
+      "DATABASE_URL is mysql://… but this app now uses PostgreSQL (postgres://…)"
+    );
+  }
+  return raw;
+}
+
+const connectionString = parseConnectionString();
+
+const pool = new Pool({
+  connectionString,
+  ssl: sslForDatabaseUrl(connectionString),
+  max: 10,
+});
+
+/** Legacy queries used `?`; most functions already use `$1`. Support both. */
+function toPostgresPlaceholders(sql: string) {
+  if (!sql.includes("?")) return sql;
+  let i = 0;
+  return sql.replace(/\?/g, () => `$${++i}`);
+}
+
+async function query(sql: string, params: unknown[] = []) {
+  const text = toPostgresPlaceholders(sql.trim());
+  const result = await pool.query(text, params);
+  const rows = result.rows || [];
   return {
-    host: u.hostname,
-    port: Number(u.port || 3306),
-    user: decodeURIComponent(u.username),
-    password: decodeURIComponent(u.password),
-    database: u.pathname.replace(/^\//, ""),
-    ssl: { rejectUnauthorized: false },
-    waitForConnections: true,
-    connectionLimit: 10,
-  };
-}
-
-const pool = mysql.createPool(
-  parseDatabaseUrl(
-    (process.env.DATABASE_URL || "").trim() ||
-      (() => {
-        throw new Error("DATABASE_URL is not set");
-      })()
-  )
-);
-
-function toMysql(sql: string) {
-  return sql.replace(/\$(\d+)/g, "?");
-}
-
-/**
- * Prepared statements (`execute`) cannot run some DDL on hosted MySQL/MariaDB/
- * Vitess ("This command is not supported in the prepared statement protocol").
- * Use the text protocol when there are no placeholders.
- */
-async function run(sql: string, params: ExecuteValues[] = []) {
-  if (params.length === 0) {
-    return pool.query<RowDataPacket[] | ResultSetHeader>(sql);
-  }
-  return pool.execute<RowDataPacket[] | ResultSetHeader>(sql, params);
-}
-
-async function query(sql: string, params: ExecuteValues[] = []) {
-  const text = toMysql(sql.trim());
-  // MySQL has no RETURNING — shim INSERT … RETURNING into INSERT + SELECT by id.
-  // Use [\s\S] so multiline RETURNING column lists (common in fertilizer inserts) match.
-  const returningMatch = text.match(/\sRETURNING\s+([\s\S]+)$/i);
-
-  if (returningMatch && /^INSERT\s+INTO/i.test(text)) {
-    const cols = returningMatch[1].replace(/\s+/g, " ").trim();
-    const insertSql = text.replace(/\sRETURNING\s+[\s\S]+$/i, "").trim();
-    const tableMatch = insertSql.match(/INSERT\s+INTO\s+(\w+)/i);
-    if (!tableMatch) throw new Error("Could not parse INSERT table name");
-
-    const [result] = (await run(insertSql, params)) as [ResultSetHeader, unknown];
-    const insertId = result.insertId;
-    const [rows] = (await run(
-      `SELECT ${cols} FROM ${tableMatch[1]} WHERE id = ?`,
-      [insertId]
-    )) as [RowDataPacket[], unknown];
-    return { rows, rowCount: rows.length };
-  }
-
-  const [rows] = await run(text, params);
-
-  if (Array.isArray(rows)) {
-    return { rows, rowCount: rows.length };
-  }
-
-  return {
-    rows: [],
-    rowCount: rows.affectedRows ?? 0,
-    insertId: rows.insertId,
+    rows,
+    rowCount: result.rowCount ?? rows.length,
+    insertId: rows[0]?.id,
   };
 }
 

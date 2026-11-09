@@ -1,78 +1,57 @@
--- Upgrade a main-branch Agri Ledger MySQL database to sellerProduction.
+-- Upgrade a main-branch Agri Ledger PostgreSQL database to sellerProduction.
 -- Safe to run more than once.
---
--- What this does:
---   1. Creates `farms` (one row per tenant)
---   2. Puts existing users onto Default Farm (id = 1) via users.farm_id
---   3. Creates empty shared knowledge-base tables (content is seeded on first
---      /getKnowledgeBase call)
---
--- Does NOT touch inventory amounts, expenses, crops, or other private data.
 
 CREATE TABLE IF NOT EXISTS farms (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT IGNORE INTO farms (id, name) VALUES (1, 'Default Farm');
+INSERT INTO farms (id, name) VALUES (1, 'Default Farm')
+ON CONFLICT (id) DO NOTHING;
 
-SET @farm_id_exists := (
-  SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.COLUMNS
-   WHERE TABLE_SCHEMA = DATABASE()
-     AND TABLE_NAME = 'users'
-     AND COLUMN_NAME = 'farm_id'
+SELECT setval(
+  pg_get_serial_sequence('farms', 'id'),
+  GREATEST((SELECT COALESCE(MAX(id), 1) FROM farms), 1)
 );
 
-SET @farm_id_sql := IF(
-  @farm_id_exists = 0,
-  'ALTER TABLE users ADD COLUMN farm_id INT NOT NULL DEFAULT 1',
-  'SELECT 1'
-);
-
-PREPARE farm_id_stmt FROM @farm_id_sql;
-EXECUTE farm_id_stmt;
-DEALLOCATE PREPARE farm_id_stmt;
-
+ALTER TABLE users ADD COLUMN IF NOT EXISTS farm_id INTEGER NOT NULL DEFAULT 1;
 UPDATE users SET farm_id = 1 WHERE farm_id IS NULL OR farm_id = 0;
 
 CREATE TABLE IF NOT EXISTS kb_fertilizers (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(255) NOT NULL,
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL UNIQUE,
   category VARCHAR(128) NOT NULL DEFAULT '',
   composition VARCHAR(255) NOT NULL DEFAULT '',
   what_it_does TEXT NULL,
   how_to_use TEXT NULL,
-  default_unit VARCHAR(32) NOT NULL DEFAULT 'kg',
-  UNIQUE KEY uq_kb_fertilizers_name (name)
+  default_unit VARCHAR(32) NOT NULL DEFAULT 'kg'
 );
 
 CREATE TABLE IF NOT EXISTS kb_pesticides (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(255) NOT NULL,
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL UNIQUE,
   target VARCHAR(255) NOT NULL DEFAULT '',
   what_it_does TEXT NULL,
   advice TEXT NULL,
-  cycle_notes TEXT NULL,
-  UNIQUE KEY uq_kb_pesticides_name (name)
+  cycle_notes TEXT NULL
 );
 
 CREATE TABLE IF NOT EXISTS kb_schedules (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  source_key VARCHAR(64) NOT NULL,
+  id SERIAL PRIMARY KEY,
+  source_key VARCHAR(64) NOT NULL UNIQUE,
   crop_type VARCHAR(128) NOT NULL DEFAULT '',
   name VARCHAR(255) NOT NULL,
-  summary TEXT NULL,
-  UNIQUE KEY uq_kb_schedules_source (source_key)
+  summary TEXT NULL
 );
 
 CREATE TABLE IF NOT EXISTS kb_schedule_steps (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   schedule_id INT NOT NULL,
   step_order INT NOT NULL DEFAULT 0,
   title VARCHAR(255) NOT NULL,
   summary TEXT NULL,
-  details TEXT NULL,
-  INDEX idx_kb_steps_schedule (schedule_id)
+  details TEXT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_kb_steps_schedule ON kb_schedule_steps (schedule_id);

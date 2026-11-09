@@ -253,11 +253,11 @@ export async function ensureFertilizerRateConfigTable() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS fertilizer_rate_config (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       crop_name VARCHAR(255) NULL,
-      config_json LONGTEXT NOT NULL,
-      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      UNIQUE KEY uq_fert_rate_crop (crop_name)
+      config_json TEXT NOT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT uq_fert_rate_crop UNIQUE (crop_name)
     )
   `);
 
@@ -268,7 +268,7 @@ export async function ensureFertilizerRateConfigTable() {
     );
   } catch (err: any) {
     const msg = String(err?.message || err);
-    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(msg)) throw err;
+    if (!/Duplicate column|ER_DUP_FIELDNAME|already exists|42701/i.test(msg)) throw err;
   }
 
   try {
@@ -447,9 +447,10 @@ export async function saveFertilizerRateConfig(
     } catch (err: any) {
       const msg = String(err?.message || err);
       const dup =
+        err?.code === "23505" ||
         err?.code === "ER_DUP_ENTRY" ||
         err?.errno === 1062 ||
-        /Duplicate/i.test(msg);
+        /duplicate/i.test(msg);
       if (!dup) throw err;
       await pool.query(
         `UPDATE fertilizer_rate_config SET config_json = ? WHERE crop_name = ?`,

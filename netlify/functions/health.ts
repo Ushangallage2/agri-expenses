@@ -14,7 +14,7 @@ export const handler: Handler = async () => {
   const mail = Boolean((process.env.MAILTRAP_API_TOKEN || "").trim());
   const from = Boolean((process.env.MAIL_FROM_EMAIL || "").trim());
 
-  const ok = db === "mysql" && jwt;
+  const ok = db === "postgres" && jwt;
 
   return {
     statusCode: 200,
@@ -28,8 +28,8 @@ export const handler: Handler = async () => {
       hint:
         ok
           ? "Env looks ready for login."
-          : db !== "mysql"
-            ? "Set DATABASE_URL to a mysql://… connection string (not postgres)."
+          : db !== "postgres"
+            ? "Set DATABASE_URL to a postgres://… connection string (Aiven PostgreSQL)."
             : "Set JWT_SECRET in Netlify site environment variables.",
     }),
   };

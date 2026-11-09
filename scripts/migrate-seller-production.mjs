@@ -1,5 +1,5 @@
 /**
- * Upgrade a main-branch Agri Ledger MySQL database to sellerProduction.
+ * Upgrade a main-branch Agri Ledger PostgreSQL database to sellerProduction.
  *
  * Usage (uses DATABASE_URL from .env or the environment):
  *   node scripts/migrate-seller-production.mjs
@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import mysql from "mysql2/promise";
+import { makePgClient } from "./pg-url.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -36,32 +36,16 @@ function loadEnvFile() {
   }
 }
 
-function parseDatabaseUrl(url) {
-  const cleaned = url
-    .replace(/[?&]ssl-mode=[^&]*/gi, "")
-    .replace(/\?$/, "")
-    .trim();
-  const u = new URL(cleaned);
-  return {
-    host: u.hostname,
-    port: Number(u.port || 3306),
-    user: decodeURIComponent(u.username),
-    password: decodeURIComponent(u.password),
-    database: u.pathname.replace(/^\//, ""),
-    ssl: { rejectUnauthorized: false },
-  };
-}
-
 async function columnExists(conn, table, column) {
-  const [rows] = await conn.query(
-    `SELECT COLUMN_NAME AS name
-       FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_NAME = ?
-        AND COLUMN_NAME = ?`,
+  const res = await conn.query(
+    `SELECT column_name AS name
+       FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = $1
+        AND column_name = $2`,
     [table, column]
   );
-  return rows.length > 0;
+  return res.rows.length > 0;
 }
 
 async function main() {
@@ -71,94 +55,103 @@ async function main() {
     console.error("DATABASE_URL is missing. Set it in .env (same as the Netlify site).");
     process.exit(1);
   }
+  if (/^mysql(\+[^:]+)?:\/\//i.test(databaseUrl)) {
+    console.error("DATABASE_URL is mysql://… — this app now uses postgres://");
+    process.exit(1);
+  }
 
-  const conn = await mysql.createConnection(parseDatabaseUrl(databaseUrl));
+  const conn = makePgClient(databaseUrl);
+  await conn.connect();
   try {
     console.log("==> Creating farms table");
     await conn.query(`
       CREATE TABLE IF NOT EXISTS farms (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
-    await conn.query(`INSERT IGNORE INTO farms (id, name) VALUES (?, ?)`, [
-      DEFAULT_FARM_ID,
-      DEFAULT_FARM_NAME,
-    ]);
+    await conn.query(
+      `INSERT INTO farms (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`,
+      [DEFAULT_FARM_ID, DEFAULT_FARM_NAME]
+    );
+    await conn.query(
+      `SELECT setval(
+         pg_get_serial_sequence('farms', 'id'),
+         GREATEST((SELECT COALESCE(MAX(id), 1) FROM farms), 1)
+       )`
+    );
     console.log(`    Default Farm id=${DEFAULT_FARM_ID}`);
 
-    console.log("==> Adding users.farm_id (main-branch DBs lack this column)");
+    console.log("==> Adding users.farm_id if missing");
     if (!(await columnExists(conn, "users", "farm_id"))) {
       await conn.query(
-        `ALTER TABLE users ADD COLUMN farm_id INT NOT NULL DEFAULT ${DEFAULT_FARM_ID}`
+        `ALTER TABLE users ADD COLUMN farm_id INTEGER NOT NULL DEFAULT ${DEFAULT_FARM_ID}`
       );
       console.log("    added users.farm_id");
     } else {
       console.log("    users.farm_id already present");
     }
-    const [backfill] = await conn.query(
-      `UPDATE users SET farm_id = ? WHERE farm_id IS NULL OR farm_id = 0`,
+    const backfill = await conn.query(
+      `UPDATE users SET farm_id = $1 WHERE farm_id IS NULL OR farm_id = 0`,
       [DEFAULT_FARM_ID]
     );
-    console.log(`    backfilled ${backfill.affectedRows ?? 0} user(s) onto Default Farm`);
+    console.log(`    backfilled ${backfill.rowCount ?? 0} user(s) onto Default Farm`);
 
-    console.log("==> Creating shared knowledge-base tables (empty; seeded on first API call)");
+    console.log("==> Creating shared knowledge-base tables");
     await conn.query(`
       CREATE TABLE IF NOT EXISTS kb_fertilizers (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL UNIQUE,
         category VARCHAR(128) NOT NULL DEFAULT '',
         composition VARCHAR(255) NOT NULL DEFAULT '',
         what_it_does TEXT NULL,
         how_to_use TEXT NULL,
-        default_unit VARCHAR(32) NOT NULL DEFAULT 'kg',
-        UNIQUE KEY uq_kb_fertilizers_name (name)
+        default_unit VARCHAR(32) NOT NULL DEFAULT 'kg'
       )
     `);
     await conn.query(`
       CREATE TABLE IF NOT EXISTS kb_pesticides (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL UNIQUE,
         target VARCHAR(255) NOT NULL DEFAULT '',
         what_it_does TEXT NULL,
         advice TEXT NULL,
-        cycle_notes TEXT NULL,
-        UNIQUE KEY uq_kb_pesticides_name (name)
+        cycle_notes TEXT NULL
       )
     `);
     await conn.query(`
       CREATE TABLE IF NOT EXISTS kb_schedules (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        source_key VARCHAR(64) NOT NULL,
+        id SERIAL PRIMARY KEY,
+        source_key VARCHAR(64) NOT NULL UNIQUE,
         crop_type VARCHAR(128) NOT NULL DEFAULT '',
         name VARCHAR(255) NOT NULL,
-        summary TEXT NULL,
-        UNIQUE KEY uq_kb_schedules_source (source_key)
+        summary TEXT NULL
       )
     `);
     await conn.query(`
       CREATE TABLE IF NOT EXISTS kb_schedule_steps (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
         schedule_id INT NOT NULL,
         step_order INT NOT NULL DEFAULT 0,
         title VARCHAR(255) NOT NULL,
         summary TEXT NULL,
-        details TEXT NULL,
-        INDEX idx_kb_steps_schedule (schedule_id)
+        details TEXT NULL
       )
     `);
+    await conn.query(
+      `CREATE INDEX IF NOT EXISTS idx_kb_steps_schedule ON kb_schedule_steps (schedule_id)`
+    );
 
-    const [[{ farms }]] = await conn.query(`SELECT COUNT(*) AS farms FROM farms`);
-    const [[{ users }]] = await conn.query(`SELECT COUNT(*) AS users FROM users`);
+    const farms = await conn.query(`SELECT COUNT(*)::int AS farms FROM farms`);
+    const users = await conn.query(`SELECT COUNT(*)::int AS users FROM users`);
     console.log("");
     console.log("Migration complete.");
-    console.log(`  farms: ${farms}`);
-    console.log(`  users: ${users} (all with farm_id)`);
+    console.log(`  farms: ${farms.rows[0].farms}`);
+    console.log(`  users: ${users.rows[0].users} (all with farm_id)`);
     console.log("");
     console.log("Existing ledger/inventory rows are unchanged.");
-    console.log("You can now Create account / Sign in on the sellerProduction deploy.");
   } finally {
     await conn.end();
   }

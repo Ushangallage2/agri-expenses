@@ -16,11 +16,20 @@ export const DEFAULT_FARM_NAME = "Default Farm";
 let schemaReady: Promise<void> | null = null;
 
 function isDupEntry(err: any): boolean {
-  return err?.code === "ER_DUP_ENTRY" || err?.errno === 1062;
+  return (
+    err?.code === "23505" ||
+    err?.code === "ER_DUP_ENTRY" ||
+    err?.errno === 1062
+  );
 }
 
 function isDupColumn(err: any): boolean {
-  return err?.code === "ER_DUP_FIELDNAME" || err?.errno === 1060;
+  return (
+    err?.code === "42701" ||
+    err?.code === "ER_DUP_FIELDNAME" ||
+    err?.errno === 1060 ||
+    /already exists/i.test(String(err?.message || ""))
+  );
 }
 
 export function ensureFarmsSchema(): Promise<void> {
@@ -28,13 +37,12 @@ export function ensureFarmsSchema(): Promise<void> {
     schemaReady = (async () => {
       await pool.query(`
         CREATE TABLE IF NOT EXISTS farms (
-          id INT AUTO_INCREMENT PRIMARY KEY,
+          id SERIAL PRIMARY KEY,
           name VARCHAR(255) NOT NULL,
-          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
 
-      // Seed a stable default farm so pre-existing single-tenant data has a home.
       try {
         await pool.query(`INSERT INTO farms (id, name) VALUES ($1, $2)`, [
           DEFAULT_FARM_ID,
@@ -43,17 +51,22 @@ export function ensureFarmsSchema(): Promise<void> {
       } catch (err) {
         if (!isDupEntry(err)) throw err;
       }
+      await pool.query(
+        `SELECT setval(
+           pg_get_serial_sequence('farms', 'id'),
+           GREATEST((SELECT COALESCE(MAX(id), 1) FROM farms), 1)
+         )`
+      );
 
-      // Add farm_id to users if missing, then backfill legacy rows.
       try {
         await pool.query(
-          `ALTER TABLE users ADD COLUMN farm_id INT NOT NULL DEFAULT ${DEFAULT_FARM_ID}`
+          `ALTER TABLE users ADD COLUMN farm_id INTEGER NOT NULL DEFAULT ${DEFAULT_FARM_ID}`
         );
       } catch (err) {
         if (!isDupColumn(err)) throw err;
       }
       await pool.query(
-        `UPDATE users SET farm_id = ? WHERE farm_id IS NULL OR farm_id = 0`,
+        `UPDATE users SET farm_id = $1 WHERE farm_id IS NULL OR farm_id = 0`,
         [DEFAULT_FARM_ID]
       );
     })().catch((err) => {
@@ -68,8 +81,11 @@ export function ensureFarmsSchema(): Promise<void> {
 export async function createFarm(name: string): Promise<number> {
   await ensureFarmsSchema();
   const clean = String(name || "").trim() || "My Farm";
-  const res = await pool.query(`INSERT INTO farms (name) VALUES ($1)`, [clean]);
-  const id = Number(res.insertId);
+  const res = await pool.query(
+    `INSERT INTO farms (name) VALUES ($1) RETURNING id`,
+    [clean]
+  );
+  const id = Number(res.rows[0]?.id);
   if (!Number.isFinite(id) || id <= 0) throw new Error("Failed to create farm");
   return id;
 }
@@ -79,7 +95,7 @@ export async function getFarm(
 ): Promise<{ id: number; name: string } | null> {
   await ensureFarmsSchema();
   const res = await pool.query(
-    `SELECT id, name FROM farms WHERE id = ? LIMIT 1`,
+    `SELECT id, name FROM farms WHERE id = $1 LIMIT 1`,
     [farmId]
   );
   if ((res.rowCount ?? 0) === 0) return null;

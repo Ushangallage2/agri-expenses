@@ -5,22 +5,23 @@ export type SummaryFrequency = "weekly" | "monthly";
 export async function ensureSummaryTables() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS summary_emails (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       email VARCHAR(255) NOT NULL UNIQUE,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS summary_settings (
       id INT PRIMARY KEY,
       frequency VARCHAR(16) NOT NULL DEFAULT 'weekly',
-      enabled TINYINT(1) NOT NULL DEFAULT 1,
-      last_sent_at DATETIME NULL,
+      enabled SMALLINT NOT NULL DEFAULT 1,
+      last_sent_at TIMESTAMP NULL,
       last_period_key VARCHAR(32) NULL
     )
   `);
   await pool.query(
-    `INSERT IGNORE INTO summary_settings (id, frequency, enabled) VALUES (1, 'weekly', 1)`
+    `INSERT INTO summary_settings (id, frequency, enabled) VALUES (1, 'weekly', 1)
+     ON CONFLICT (id) DO NOTHING`
   );
 }
 

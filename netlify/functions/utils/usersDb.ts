@@ -8,11 +8,11 @@ export async function ensureUsersRoleColumn(): Promise<void> {
   if (!roleColumnReady) {
     roleColumnReady = (async () => {
       const cols = await pool.query(
-        `SELECT COLUMN_NAME AS name
-         FROM INFORMATION_SCHEMA.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE()
-           AND TABLE_NAME = 'users'
-           AND COLUMN_NAME = 'role'`
+        `SELECT column_name AS name
+           FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'users'
+            AND column_name = 'role'`
       );
       if ((cols.rowCount ?? 0) === 0) {
         await pool.query(
