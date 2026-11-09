@@ -7,7 +7,7 @@ export async function ensureFertilizerStockMutationsTable() {
   if (ensured) return;
   await pool.query(`
     CREATE TABLE IF NOT EXISTS fertilizer_stock_mutations (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       fertilizer_id INT NOT NULL,
       reason VARCHAR(64) NOT NULL DEFAULT 'purchase',
       delta_qty DECIMAL(14, 3) NOT NULL,
@@ -17,12 +17,16 @@ export async function ensureFertilizerStockMutationsTable() {
       next_price DECIMAL(14, 2) NULL,
       notes TEXT NULL,
       created_by VARCHAR(255) NULL,
-      undone TINYINT(1) NOT NULL DEFAULT 0,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_fsm_undone_created (undone, created_at DESC),
-      INDEX idx_fsm_fertilizer (fertilizer_id)
+      undone SMALLINT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_fsm_undone_created ON fertilizer_stock_mutations (undone, created_at DESC)`
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_fsm_fertilizer ON fertilizer_stock_mutations (fertilizer_id)`
+  );
   ensured = true;
 }
 

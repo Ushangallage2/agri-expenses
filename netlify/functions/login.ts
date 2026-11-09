@@ -55,8 +55,8 @@ export const handler: Handler = async (event) => {
       console.error("LOGIN ERROR: DATABASE_URL is not set");
       return response(500, "Server misconfigured (database)", baseHeaders);
     }
-    if (/^postgres(ql)?:\/\//i.test(dbUrl)) {
-      console.error("LOGIN ERROR: DATABASE_URL is postgres but app expects mysql");
+    if (/^mysql(\+[^:]+)?:\/\//i.test(dbUrl)) {
+      console.error("LOGIN ERROR: DATABASE_URL is mysql but app expects postgres");
       return response(500, "Server misconfigured (database type)", baseHeaders);
     }
 

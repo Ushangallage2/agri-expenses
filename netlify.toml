@@ -11,7 +11,7 @@
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["mysql2", "bcryptjs", "jsonwebtoken"]
+  external_node_modules = ["pg", "bcryptjs", "jsonwebtoken"]
 
 # Daily check; weekly sends on Monday, monthly on the 1st (UTC)
 [functions."sendLedgerSummary"]

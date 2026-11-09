@@ -7,13 +7,15 @@ export async function ensureCropNotesTable() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS crop_notes (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       crop_name VARCHAR(255) NOT NULL,
       note TEXT NOT NULL,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_crop_notes_crop (crop_name)
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_crop_notes_crop ON crop_notes (crop_name)`
+  );
 
   try {
     await pool.query(
@@ -21,16 +23,16 @@ export async function ensureCropNotesTable() {
     );
   } catch (err: any) {
     const msg = String(err?.message || err);
-    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(msg)) throw err;
+    if (!/Duplicate column|ER_DUP_FIELDNAME|already exists|42701/i.test(msg)) throw err;
   }
 
   try {
     await pool.query(
-      `ALTER TABLE crop_notes ADD COLUMN completed TINYINT(1) NOT NULL DEFAULT 0`
+      `ALTER TABLE crop_notes ADD COLUMN completed SMALLINT NOT NULL DEFAULT 0`
     );
   } catch (err: any) {
     const msg = String(err?.message || err);
-    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(msg)) throw err;
+    if (!/Duplicate column|ER_DUP_FIELDNAME|already exists|42701/i.test(msg)) throw err;
   }
 
   try {
@@ -39,7 +41,7 @@ export async function ensureCropNotesTable() {
     );
   } catch (err: any) {
     const msg = String(err?.message || err);
-    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(msg)) throw err;
+    if (!/Duplicate column|ER_DUP_FIELDNAME|already exists|42701/i.test(msg)) throw err;
   }
 
   try {
@@ -55,7 +57,7 @@ export async function ensureCropNotesTable() {
     await pool.query(`ALTER TABLE crop_notes ADD COLUMN plant_number INT NULL`);
   } catch (err: any) {
     const msg = String(err?.message || err);
-    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(msg)) throw err;
+    if (!/Duplicate column|ER_DUP_FIELDNAME|already exists|42701/i.test(msg)) throw err;
   }
 
   try {

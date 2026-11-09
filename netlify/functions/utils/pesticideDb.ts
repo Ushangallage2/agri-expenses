@@ -8,47 +8,43 @@ export async function ensurePesticideTables() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pesticide_sets (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL UNIQUE,
       description TEXT NULL,
       created_by VARCHAR(255) NULL,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY uq_pesticide_sets_name (name)
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pesticide_set_items (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       set_id INT NOT NULL,
       fertilizer_id INT NOT NULL,
       amount DECIMAL(14, 3) NOT NULL DEFAULT 0,
       unit VARCHAR(32) NOT NULL DEFAULT 'ml',
-      sort_order INT NOT NULL DEFAULT 0,
-      INDEX idx_psi_set (set_id)
+      sort_order INT NOT NULL DEFAULT 0
     )
   `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pesticide_use_logs (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       batch_id VARCHAR(64) NOT NULL,
       set_id INT NULL,
       set_name VARCHAR(255) NULL,
       description TEXT NULL,
       note TEXT NULL,
       crop_name VARCHAR(255) NULL,
-      applied_at DATETIME NOT NULL,
+      applied_at TIMESTAMP NOT NULL,
       created_by VARCHAR(255) NULL,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_pul_batch (batch_id),
-      INDEX idx_pul_applied (applied_at)
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pesticide_use_lines (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       batch_id VARCHAR(64) NOT NULL,
       fertilizer_id INT NOT NULL,
       fertilizer_name VARCHAR(255) NOT NULL,
@@ -57,10 +53,21 @@ export async function ensurePesticideTables() {
       stock_deducted DECIMAL(14, 3) NOT NULL DEFAULT 0,
       stock_unit VARCHAR(32) NULL,
       unit_price DECIMAL(14, 2) NOT NULL DEFAULT 0,
-      line_cost DECIMAL(14, 2) NOT NULL DEFAULT 0,
-      INDEX idx_pline_batch (batch_id)
+      line_cost DECIMAL(14, 2) NOT NULL DEFAULT 0
     )
   `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_psi_set ON pesticide_set_items (set_id)`
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_pul_batch ON pesticide_use_logs (batch_id)`
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_pul_applied ON pesticide_use_logs (applied_at)`
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_pline_batch ON pesticide_use_lines (batch_id)`
+  );
 
   ensured = true;
 }

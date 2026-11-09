@@ -31,10 +31,9 @@ Live site: [agriexpenses.netlify.app](https://agriexpenses.netlify.app)
 - Per-crop fertilizer shortcut
 
 ### Individual plants
-- On a crop page, **Open plant map**
-- Cinema-style tiles — one seat per plant
-- Click a plant for its own notes, todos, and photos
-- Tiles show whether that plant has history or an open todo
+- **Open plant map**: drag each plant number into place, and reshape the land outline (width, length, corners)
+- **MAP**: satellite search or an uploaded plan image, drag plant numbers on either view, export PDF
+- Notes, todos, and photos stay on the plant you open from a number tile
 
 ### Fertilizer & pesticides
 - Inventory, purchases, schedules, and apply logs
@@ -53,7 +52,7 @@ Live site: [agriexpenses.netlify.app](https://agriexpenses.netlify.app)
 
 ## How to run locally
 
-You need Node 20, a MySQL database, and a `.env` file.
+You need Node 20, a PostgreSQL database, and a `.env` file.
 
 ```bash
 cp .env.example .env
@@ -81,10 +80,12 @@ npm run seed-fertilizer
 |------|------|
 | `src/pages/` | Screens (dashboard, crop notes, plant map, fertilizer, export) |
 | `src/components/` | Shared UI |
-| `netlify/functions/` | API + MySQL |
+| `netlify/functions/` | API + PostgreSQL |
 | `scripts/` | Admin user, fertilizer seed |
 
-Stack: React 19, TypeScript, Vite, Tailwind, Netlify Functions, MySQL.
+Stack: React 19, TypeScript, Vite, Tailwind, Netlify Functions, PostgreSQL.
+
+Aiven’s MySQL free tier is retiring (powered off 21 Dec 2026). Use **Aiven for PostgreSQL** (still free-tier) or any `postgres://` host. Set Netlify `DATABASE_URL` to the Postgres URL with `?sslmode=require`. See `docs/POSTGRES.md`.
 
 ---
 
