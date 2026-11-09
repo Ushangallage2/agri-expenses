@@ -14,8 +14,9 @@
   node_bundler = "esbuild"
   external_node_modules = ["pg", "bcryptjs", "jsonwebtoken"]
 
-# Daily check; weekly sends on Monday, monthly on the 1st (UTC)
-[functions."sendLedgerSummary"]
+# Daily check; weekly sends on Monday, monthly on the 1st (UTC).
+# Keep this off sendLedgerSummary — scheduled + public HTTP is 403 in the browser.
+[functions."sendLedgerSummaryCron"]
   schedule = "0 8 * * *"
 
 # Free warm ping — keep DB pool / function runtime from going fully cold.

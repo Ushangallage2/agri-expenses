@@ -129,7 +129,11 @@ export default function EmailReports() {
         data = {};
       }
       if (!res.ok) {
-        throw new Error(data?.error || "Send failed — check Mailtrap env vars");
+        const fallback =
+          res.status === 403
+            ? "Send blocked (403). Redeploy so sendLedgerSummary is not a scheduled function."
+            : "Send failed — check Mailtrap env vars";
+        throw new Error(data?.error || fallback);
       }
       if (data.skipped) {
         setMessage(`Skipped: ${data.reason || "not sent"}`);
