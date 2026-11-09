@@ -28,5 +28,11 @@ dist-ssr
 
 .env
 
+# Live database dumps (password hashes, receipts, emails)
+dump-defaultdb*.sql
+defaultdb.postgres.sql
+*.postgres.sql
+*.postgres.sql.gz
+
 # ignore CA private key
 ca.pem
