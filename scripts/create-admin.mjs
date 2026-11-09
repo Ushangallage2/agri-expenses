@@ -1,5 +1,5 @@
 /**
- * Create (or reset) a user in MySQL.
+ * Create (or reset) a user in PostgreSQL.
  *
  * Usage:
  *   node scripts/create-admin.mjs
@@ -12,8 +12,8 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import mysql from "mysql2/promise";
 import bcrypt from "bcryptjs";
+import { makePgClient } from "./pg-url.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -50,39 +50,23 @@ function parseArgs(argv) {
   return out;
 }
 
-function parseDatabaseUrl(url) {
-  const cleaned = url
-    .replace(/[?&]ssl-mode=[^&]*/gi, "")
-    .replace(/\?$/, "")
-    .trim();
-  const u = new URL(cleaned);
-  return {
-    host: u.hostname,
-    port: Number(u.port || 3306),
-    user: decodeURIComponent(u.username),
-    password: decodeURIComponent(u.password),
-    database: u.pathname.replace(/^\//, ""),
-    ssl: { rejectUnauthorized: false },
-  };
-}
-
 async function ensureSchema(conn) {
   await conn.query(`
     CREATE TABLE IF NOT EXISTS users (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       username VARCHAR(255) NOT NULL UNIQUE,
       password VARCHAR(255) NOT NULL
     )
   `);
 
-  const [cols] = await conn.query(
-    `SELECT COLUMN_NAME AS name
-     FROM INFORMATION_SCHEMA.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = 'users'
-       AND COLUMN_NAME = 'role'`
+  const cols = await conn.query(
+    `SELECT column_name AS name
+       FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = 'users'
+        AND column_name = 'role'`
   );
-  if (!cols.length) {
+  if (!cols.rows.length) {
     await conn.query(
       `ALTER TABLE users
        ADD COLUMN role VARCHAR(32) NOT NULL DEFAULT 'admin'`
@@ -90,42 +74,68 @@ async function ensureSchema(conn) {
   }
 
   await conn.query(`
+    CREATE TABLE IF NOT EXISTS farms (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await conn.query(
+    `INSERT INTO farms (id, name) VALUES (1, 'Default Farm')
+     ON CONFLICT (id) DO NOTHING`
+  );
+  const farmCol = await conn.query(
+    `SELECT column_name AS name
+       FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = 'users'
+        AND column_name = 'farm_id'`
+  );
+  if (!farmCol.rows.length) {
+    await conn.query(
+      `ALTER TABLE users ADD COLUMN farm_id INTEGER NOT NULL DEFAULT 1`
+    );
+  }
+
+  await conn.query(`
     CREATE TABLE IF NOT EXISTS crops (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL UNIQUE
     )
   `);
   await conn.query(`
     CREATE TABLE IF NOT EXISTS reasons (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       reason VARCHAR(255) NOT NULL UNIQUE
     )
   `);
   await conn.query(`
     CREATE TABLE IF NOT EXISTS saved_amounts (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       amount DECIMAL(12, 2) NOT NULL UNIQUE
     )
   `);
   await conn.query(`
     CREATE TABLE IF NOT EXISTS expenses (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       expender VARCHAR(255) NOT NULL,
       reason VARCHAR(255) NOT NULL,
       amount DECIMAL(12, 2) NOT NULL,
       crop VARCHAR(255) NOT NULL,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
   await conn.query(`
     CREATE TABLE IF NOT EXISTS crop_notes (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       crop_name VARCHAR(255) NOT NULL,
       note TEXT NOT NULL,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_crop_notes_crop (crop_name)
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await conn.query(
+    `CREATE INDEX IF NOT EXISTS idx_crop_notes_crop ON crop_notes (crop_name)`
+  );
 }
 
 async function main() {
@@ -142,30 +152,35 @@ async function main() {
     console.error("DATABASE_URL is missing. Set it in .env first.");
     process.exit(1);
   }
+  if (/^mysql(\+[^:]+)?:\/\//i.test(databaseUrl)) {
+    console.error("DATABASE_URL is mysql://… — this app now uses postgres://");
+    process.exit(1);
+  }
 
-  const conn = await mysql.createConnection(parseDatabaseUrl(databaseUrl));
+  const conn = makePgClient(databaseUrl);
+  await conn.connect();
 
   try {
     await ensureSchema(conn);
     const hash = await bcrypt.hash(password, 10);
 
-    const [existing] = await conn.execute(
-      "SELECT id FROM users WHERE username = ?",
+    const existing = await conn.query(
+      "SELECT id FROM users WHERE username = $1",
       [username]
     );
 
-    if (existing.length > 0) {
-      await conn.execute(
-        "UPDATE users SET password = ?, role = ? WHERE username = ?",
+    if (existing.rows.length > 0) {
+      await conn.query(
+        "UPDATE users SET password = $1, role = $2 WHERE username = $3",
         [hash, role, username]
       );
       console.log(`Updated existing user: ${username} (role=${role})`);
     } else {
-      const [result] = await conn.execute(
-        "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+      const result = await conn.query(
+        "INSERT INTO users (username, password, role) VALUES ($1, $2, $3) RETURNING id",
         [username, hash, role]
       );
-      console.log(`Created user id=${result.insertId} role=${role}`);
+      console.log(`Created user id=${result.rows[0].id} role=${role}`);
     }
 
     console.log("");

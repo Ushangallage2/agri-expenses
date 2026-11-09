@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
+import Signup from "./pages/Signup";
+import KnowledgeBase from "./pages/KnowledgeBase";
 import Dashboard from "./pages/Dashboard";
 import AddExpense from "./pages/AddExpense";
 import CropNotes from "./pages/CropNotes";
@@ -20,6 +22,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/knowledge" element={<KnowledgeBase />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/add-expense" element={<AddExpense />} />
           <Route path="/crops/:cropName/notes" element={<CropNotes />} />

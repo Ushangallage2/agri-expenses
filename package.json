@@ -11,6 +11,8 @@
     "create-admin": "node scripts/create-admin.mjs",
     "create-observe": "node scripts/create-admin.mjs --username observe --password observe123 --role observe",
     "seed-fertilizer": "node scripts/seed-fertilizer-inventory.mjs",
+    "migrate-seller-production": "node scripts/migrate-seller-production.mjs",
+    "mysql-dump-to-postgres": "python3 scripts/mysql-dump-to-postgres.py",
     "tailwind:init": "tailwindcss init -p",
     "tailwind:build": "tailwindcss -i ./src/index.css -o ./dist/output.css --watch"
   },
@@ -19,7 +21,6 @@
     "bcryptjs": "^3.0.3",
     "chart.js": "^4.5.1",
     "jsonwebtoken": "^9.0.3",
-    "mysql2": "^3.23.0",
     "pg": "^8.18.0",
     "react": "^19.2.4",
     "react-chartjs-2": "^5.3.1",

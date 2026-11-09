@@ -1463,6 +1463,9 @@ const ledger = splitTotals(expenses);
           <button className="glass-btn" onClick={() => navigate("/fertilizer")}>
             Fertilizer
           </button>
+          <button className="glass-btn" onClick={() => navigate("/knowledge")}>
+            Knowledge
+          </button>
           {isAdmin && (
             <>
               <button className="glass-btn" onClick={() => navigate("/add-expense?type=user")}>

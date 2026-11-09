@@ -7,7 +7,7 @@ async function addColumn(sql: string) {
     await pool.query(sql);
   } catch (err: any) {
     const msg = String(err?.message || err);
-    if (!/Duplicate column|ER_DUP_FIELDNAME/i.test(msg)) throw err;
+    if (!/Duplicate column|ER_DUP_FIELDNAME|already exists|42701/i.test(msg)) throw err;
   }
 }
 
@@ -17,7 +17,7 @@ export async function ensureCropStatusColumns() {
   await addColumn(
     `ALTER TABLE crops ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT 'active'`
   );
-  await addColumn(`ALTER TABLE crops ADD COLUMN closed_at DATETIME NULL`);
+  await addColumn(`ALTER TABLE crops ADD COLUMN closed_at TIMESTAMP NULL`);
   await addColumn(
     `ALTER TABLE crops ADD COLUMN closed_plant_count INT NULL`
   );
