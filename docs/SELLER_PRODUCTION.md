@@ -89,6 +89,28 @@ plus small query builders will keep step 2–3 consistent across the ~70 functio
 
 ---
 
+## Upgrading a main-branch database
+
+Production (`farmwithtech`) currently uses the **main** schema: `users` has no
+`farm_id`, and there is no `farms` table. Signup 500s until that schema is
+updated. Existing ledger and inventory rows are left as they are; they are
+attached to **Default Farm** (`id = 1`).
+
+Point `.env` at that MySQL (`DATABASE_URL`, same value as the Netlify site) and run:
+
+```bash
+npm run migrate-seller-production
+```
+
+Or paste `scripts/migrate-seller-production.sql` into the host’s SQL console.
+Both are idempotent. After they succeed, **Create account** on the
+`sellerProduction` deploy should work.
+
+Login and signup still try to apply the same DDL on first request; the script is
+the reliable path when the function runtime cannot (or should not) ALTER tables.
+
+---
+
 ## Testing notes
 
 - `signup` → creates a farm + admin and logs in; `login` continues to work and
