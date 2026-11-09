@@ -28,9 +28,10 @@ dist-ssr
 
 .env
 
-# Live database dumps (password hashes, receipts, emails)
-dump-defaultdb*.sql
-defaultdb.postgres.sql
+# Live database dumps (password hashes, receipts, emails).
+# Do not put the Aiven database name in these patterns — Netlify secrets
+# scan treats that string as DB_NAME.
+dump-*.sql
 *.postgres.sql
 *.postgres.sql.gz
 
