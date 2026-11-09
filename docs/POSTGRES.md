@@ -10,10 +10,10 @@ MySQL URLs are rejected at startup and login.
 ## What to do on Aiven
 
 1. Create an **Aiven for PostgreSQL** free-tier service (same project is fine).
-2. Copy the service URI. It looks like:
-   `postgres://avnadmin:…@….a.aivencloud.com:PORT/defaultdb?sslmode=require`
+2. Copy the service URI from the Aiven console. Add `?sslmode=require` if it is
+   not already present.
 3. In Netlify site env vars, set `DATABASE_URL` to that URI (replace the old
-   `mysql://…` value). Keep `JWT_SECRET`.
+   MySQL URL). Keep `JWT_SECRET`.
 4. Redeploy the `sellerProduction` (or `main`) branch.
 
 On first request the functions create tables (`CREATE TABLE IF NOT EXISTS` /
@@ -28,11 +28,12 @@ Existing **MySQL data is not copied automatically**. To move it before 21 Dec:
 
 ```bash
 # example using pgloader (install separately)
-pgloader mysql://USER:PASS@MYSQL_HOST:3306/DB \
-        postgres://avnadmin:PASS@PG_HOST:PORT/defaultdb?sslmode=require
+# Point both URIs at your real hosts; do not commit credentials.
+pgloader mysql://USER@MYSQL_HOST:3306/DB \
+        postgres://USER@PG_HOST:PORT/defaultdb?sslmode=require
 ```
 
-Or `mysqldump` the old service and load a converted dump. After cutover, point
+Or dump the old MySQL service and load a converted dump. After cutover, point
 Netlify at Postgres only.
 
 ## Local
@@ -45,7 +46,7 @@ sudo -u postgres createuser -P agri   # prompts for a local password
 sudo -u postgres createdb -O agri agri
 
 cp .env.example .env
-# DATABASE_URL=postgres://agri:<password>@127.0.0.1:5432/agri
+# DATABASE_URL=postgres://agri@127.0.0.1:5432/agri
 
 npm install
 npm run create-admin -- --username admin --password 'your-admin-password'
